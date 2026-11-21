@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>像素码 · 图片转文本</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 冷静的工具，像实验室仪器面板
+   IDEA: 一张打孔卡/编码表——图片被逐格抄成数字，再抄回来
+   PICTURE: 工具本身：左图右码，中间是像素网格放大镜
+   COLOUR and TYPE: stone 底、黑字、砖红强调；Schibsted Grotesk + 等宽码文
+   LAYOUT: 两个工位（编码 / 还原）上下排列，手机上单列 */
+:root{color-scheme:light dark;--bg:light-dark(#e7e4df,#171513);--panel:light-dark(#fff,#211e1b);--ink:light-dark(#141210,#ece8e2);--mute:light-dark(#5f5a53,#a49d93);--rule:light-dark(#cfcac2,#3a352f);--acc:#c8371e;--ok:light-dark(#1f6b3a,#6fcf8f)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Schibsted Grotesk","PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(22px,3.5vw,48px) max(5vw,16px);max-width:1240px;margin:0 auto}
+h1{font-size:clamp(30px,4.4vw,46px);line-height:1.05;margin:0 0 10px;text-wrap:balance}
+h2{font-size:22px;margin:0 0 4px}
+.lead{color:var(--mute);max-width:68ch;margin:0}
+.station{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:clamp(16px,2.4vw,28px);margin-top:20px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:22px;margin-top:14px}
+@media(max-width:760px){.grid{grid-template-columns:minmax(0,1fr)}}
+.drop{border:2px dashed var(--rule);border-radius:8px;min-height:240px;display:grid;place-items:center;text-align:center;padding:14px;cursor:pointer;position:relative;background:repeating-conic-gradient(light-dark(#f3f1ee,#1b1916) 0 25%,transparent 0 50%) 0 0/16px 16px}
+.drop.on{border-color:var(--acc)}
+.drop canvas,.drop img{max-width:100%;max-height:340px;image-rendering:pixelated;display:block}
+.drop p{margin:0;color:var(--mute)}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;margin-top:14px}
+label{font-size:14px;color:var(--mute);display:block}
+select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px}
+select{width:100%;height:44px;padding:0 10px;font-size:16px;margin-top:3px}
+textarea{width:100%;height:260px;padding:10px;font:12px/1.45 "JetBrains Mono",ui-monospace,monospace;resize:vertical;overflow-wrap:anywhere}
+select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;align-items:center}
+button{font:600 15px/1 inherit;font-family:inherit;min-height:44px;padding:0 18px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}
+button.acc{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.4;cursor:default}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px}
+.stat{border-top:2px solid var(--ink);padding-top:6px}
+.stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.stat span{font-size:13px;color:var(--mute)}
+.msg{font-size:14px;margin-top:10px;min-height:1.4em}
+.msg.bad{color:var(--acc)}.msg.good{color:var(--ok)}
+.probe{font:13px "JetBrains Mono",monospace;color:var(--mute);margin-top:6px;min-height:1.4em;display:flex;gap:8px;align-items:center}
+.sw{width:14px;height:14px;border:1px solid var(--rule);display:inline-block}
+details{margin-top:14px;font-size:15px}summary{cursor:pointer;font-weight:600;min-height:32px}
+pre{overflow-x:auto;font:12px/1.5 "JetBrains Mono",monospace;background:var(--bg);padding:10px;border-radius:6px;max-height:220px}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin-top:8px}
+.how div{border-top:1px solid var(--rule);padding-top:10px}.how b{display:block;margin-bottom:2px}
+.how p{margin:0;color:var(--mute);font-size:15px}
+.tag{font-size:12px;color:var(--mute)}
+.bar{height:4px;background:var(--rule);border-radius:2px;margin-top:8px;overflow:hidden;visibility:hidden}.bar.on{visibility:visible}.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .15s}
+.full{grid-column:1/-1}.pw{display:flex;gap:8px;margin-top:3px}
+.pw input{flex:1;font:inherit;font-size:16px;height:44px;padding:0 10px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px}
+.pw input:focus{outline:2px solid var(--acc);outline-offset:2px}.eye{padding:0 12px;flex:none}
+.seg{margin-top:14px;padding-top:12px;border-top:1px dashed var(--rule)}.seg span{font-size:15px}
+input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 8px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:6px}
+.parts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.parts span{font-size:13px;background:var(--bg);border:1px solid var(--rule);border-radius:14px;padding:3px 4px 3px 10px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.parts button{min-height:24px;height:24px;width:24px;padding:0;border:0;background:transparent;color:var(--mute);font-size:14px}
+@media(prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style></head><body>
+<div class="band">
+<h1>像素码：把图片抄成文字，再抄回来</h1>
+<p class="lead">每个像素按「从左到右、从上到下」的顺序记录颜色（位置由顺序决定），压缩后加上 Reed-Solomon 纠错码和逐行校验，变成一段纯文本。随便复制、粘贴、分段发送，哪怕丢了几行、换行被打乱、混进几个错字，也能还原成原图。全部在浏览器本地完成，不上传。</p>
+
+<section class="station" id="enc">
+<h2>① 图片 → 文本</h2>
+<div class="grid">
+ <div>
+  <div class="drop" id="drop" tabindex="0"><p id="dropTip">点击选择图片，或把图片拖到这里<br><span class="tag">也可以直接 Ctrl+V 粘贴截图 · 支持 JPG PNG WebP GIF BMP AVIF SVG ICO HEIC TIFF</span></p></div>
+  <input type="file" id="file" accept="image/*,.heic,.heif,.tif,.tiff" hidden>
+  <div class="probe" id="probe1"></div>
+  <div class="opts">
+   <div><label for="maxSide">尺寸</label><select id="maxSide"><option value="0" selected>原尺寸（不缩小）</option><option value="4096">最长边 4096</option><option value="2048">最长边 2048</option><option value="1024">最长边 1024</option><option value="512">最长边 512</option><option value="256">最长边 256</option></select></div>
+   <div><label for="bits">颜色精度</label><select id="bits"><option value="8" selected>8 位（无损）</option><option value="6">6 位（几乎看不出）</option><option value="5">5 位（文本更短）</option><option value="4">4 位（明显色阶）</option></select></div>
+   <div><label for="ecc">纠错强度</label><select id="ecc"><option value="32">低：可丢约 10% 行</option><option value="64" selected>中：可丢约 20% 行</option><option value="96">高：可丢约 30% 行</option><option value="128">极高：可丢约 40% 行</option></select></div>
+   <div><label for="zip">压缩</label><select id="zip"><option value="1" selected>开（文本更短）</option><option value="0">关（损坏只影响局部）</option></select></div>
+   <div class="full"><label for="pwd">加密密码（可选，留空不加密）</label><div class="pw"><input id="pwd" type="password" autocomplete="new-password" placeholder="设置密码后，只有知道密码的人能还原"><button class="ghost eye" type="button" data-for="pwd">显示</button></div></div>
+  </div>
+ </div>
+ <div>
+  <label for="out">编码结果</label>
+  <textarea id="out" readonly placeholder="选择图片后，这里会出现编码文本"></textarea>
+  <div class="bar" id="bar1"><i></i></div>
+  <div class="row"><button id="copy" disabled>复制全部</button><button class="ghost" id="dl" disabled>保存为 .txt</button><button class="ghost" id="toDec" disabled>送到下方还原</button><button class="ghost" id="hurt" disabled>随机破坏后还原</button></div>
+  <div class="seg" id="seg" hidden>
+   <label for="segSize">分段复制（适合有字数限制的聊天软件，各段可以乱序粘贴）</label>
+   <div class="row" style="margin-top:4px">
+    <select id="segSize" style="width:auto"><option value="5000">每段 5 千字</option><option value="20000">每段 2 万字</option><option value="100000" selected>每段 10 万字</option><option value="1000000">每段 100 万字</option></select>
+    <span>第</span><input id="segNo" type="number" min="1" value="1"><span id="segOf">/ 1 段</span>
+    <button class="ghost" id="segCopy">复制这一段</button>
+   </div>
+  </div>
+  <div class="stats" id="encStats"></div>
+  <div class="msg" id="encMsg"></div>
+ </div>
+</div>
+<details id="plain"><summary>看看「位置 + 颜色」的明文样子</summary><pre id="plainPre">（选择图片后显示前 40 个像素）</pre></details>
+</section>
+
+<section class="station" id="dec">
+<h2>② 文本 → 图片</h2>
+<div class="grid">
+ <div>
+  <label for="inp">粘贴编码文本（可以分几次粘贴不同的分段；换行、空格、多余文字都无所谓）</label>
+  <textarea id="inp" placeholder="[PXC1;…] 开头的文本贴在这里，或把 .txt 文件拖进来"></textarea>
+  <div class="parts" id="parts"></div>
+  <div style="margin-top:10px"><label for="pwd2">解密密码（加密过的文本才需要）</label><div class="pw"><input id="pwd2" type="password" autocomplete="off" placeholder="没加密就留空"><button class="ghost eye" type="button" data-for="pwd2">显示</button></div></div>
+  <input type="file" id="txtFile" accept=".txt,text/plain" multiple hidden>
+  <div class="bar" id="bar2"><i></i></div>
+  <div class="row"><button class="acc" id="go">还原图片</button><button class="ghost" id="addTxt">打开 .txt 文件</button><button class="ghost" id="clr">清空</button></div>
+  <div class="stats" id="decStats"></div>
+  <div class="msg" id="decMsg"></div>
+ </div>
+ <div>
+  <div class="drop" id="res" style="cursor:default"><p>还原出的图片会显示在这里</p></div>
+  <div class="probe" id="probe2"></div>
+  <div class="row" id="saveRow" hidden><button class="ghost" id="dlPng">保存 PNG</button><span class="tag">也可以在图片上右键「另存为」，手机上长按图片保存</span></div>
+ </div>
+</div>
+</section>
+
+<section class="station">
+<h2>加密说明</h2>
+<div class="how">
+ <div><b>算法</b><p>AES-256-GCM 加密，密码经 PBKDF2-SHA256 迭代 60 万次生成密钥，每次加密使用随机盐和随机向量，同一张图同一个密码，每次生成的文本也不一样。</p></div>
+ <div><b>加密了什么</b><p>像素数据和图片的宽、高、颜色格式都在密文里，文本里看不出图片尺寸。纠错仍在外层，没有密码的人也能帮你修复损坏的文本，但看不到内容。</p></div>
+ <div><b>密码错了会怎样</b><p>GCM 自带完整性校验：密码错误或密文被篡改，都会直接提示“密码错误或内容被改动”，不会显示一张乱码图。</p></div>
+ <div><b>注意</b><p>忘记密码就无法恢复，没有后门。短密码或常见密码可能被暴力猜出，建议 12 位以上。加密后损坏超出纠错能力时只能整张失败，不能局部显示。</p></div>
+</div>
+</section>
+
+<section class="station">
+<h2>规格与限制</h2>
+<div class="how">
+ <div><b>没有写死的上限</b><p>不限制尺寸、像素数和文件大小。超过浏览器画布上限的大图按 4096×4096 分块读取；还原时直接生成 PNG，不经过画布。</p></div>
+ <div><b>真正的上限是内存</b><p>每个像素编码时约占 8～10 字节内存，还原时约 12 字节。实测 9000×6000（5400 万像素）在电脑浏览器里编码约 20 秒、还原约 40 秒；再大取决于电脑内存。手机浏览器内存小，几千万像素以上可能失败，会给出提示。</p></div>
+ <div><b>格式</b><p>浏览器能打开的都行；HEIC（苹果照片）和 TIFF 会自动加载解码库。动图只取第一帧，16 位图片会转成 8 位，相机 RAW 需要先转成 JPG / PNG / TIFF。</p></div>
+ <div><b>文本多长</b><p>大约是“压缩后的图片数据 × 1.6”。一张 1200 万像素照片无损编码约 30～50 MB 文本，分段发送或存成 .txt 更合适；调小尺寸或颜色精度能明显缩短。</p></div>
+</div>
+</section>
+
+<section class="station">
+<h2>工作原理</h2>
+<div class="how">
+ <div><b>1 · 数字化</b><p>读取每个像素的 R、G、B（有透明时加 A）。第 n 个数字对应的位置是 x = n mod 宽，y = n ÷ 宽，所以不必单独存坐标。</p></div>
+ <div><b>2 · 压缩</b><p>先做 PNG 同款的 Paeth 预测（存“和邻居的差”），再用 deflate 压缩。</p></div>
+ <div><b>3 · 纠错</b><p>每 255 字节一组做 Reed-Solomon 编码，并按列交错打散，丢掉连续一整行只会让每组损失 1 个字节。</p></div>
+ <div><b>4 · 成文</b><p>每行 64 个字符：<code>@行号:数据#校验</code>。校验不对的行当作“擦除”交给纠错修；文件头每 100 行重复一次，所以分段乱序粘贴也行。</p></div>
+</div>
+</section>
+</div>
+<script type="text/plain" id="wsrc">
+// ===== PXC core: Reed-Solomon GF(256) + framing =====
+const EXP=new Uint8Array(512),LOG=new Uint8Array(256);
+{let x=1;for(let i=0;i<255;i++){EXP[i]=x;LOG[x]=i;x<<=1;if(x&256)x^=0x11d;}for(let i=255;i<512;i++)EXP[i]=EXP[i-255];}
+const gmul=(a,b)=>a&&b?EXP[LOG[a]+LOG[b]]:0;
+const gdiv=(a,b)=>{if(!b)throw Error('div0');return a?EXP[(LOG[a]+255-LOG[b])%255]:0};
+const gpow=(x,p)=>EXP[(((LOG[x]*p)%255)+255)%255];
+const ginv=x=>EXP[255-LOG[x]];
+const pScale=(p,x)=>p.map(c=>gmul(c,x));
+const pAdd=(p,q)=>{const n=Math.max(p.length,q.length),r=new Array(n).fill(0);for(let i=0;i<p.length;i++)r[i+n-p.length]=p[i];for(let i=0;i<q.length;i++)r[i+n-q.length]^=q[i];return r};
+const pMul=(p,q)=>{const r=new Array(p.length+q.length-1).fill(0);for(let j=0;j<q.length;j++)for(let i=0;i<p.length;i++)r[i+j]^=gmul(p[i],q[j]);return r};
+const pEval=(p,x)=>{let y=p[0];for(let i=1;i<p.length;i++)y=gmul(y,x)^p[i];return y};
+const pDiv=(a,d)=>{const o=a.slice();for(let i=0;i<a.length-(d.length-1);i++){const c=o[i];if(c)for(let j=1;j<d.length;j++)if(d[j])o[i+j]^=gmul(d[j],c);}const s=d.length-1;return[o.slice(0,o.length-s),o.slice(o.length-s)]};
+const genCache={};
+function genPoly(n){if(genCache[n])return genCache[n];let g=[1];for(let i=0;i<n;i++)g=pMul(g,[1,gpow(2,i)]);return genCache[n]=g}
+const glogCache={};
+function rsEncode(msg,nsym){ // msg Uint8Array -> Uint8Array(len+nsym)
+  const g=genPoly(nsym),gl=glogCache[nsym]||(glogCache[nsym]=Int32Array.from(g,v=>LOG[v])),out=new Uint8Array(msg.length+nsym),G=g.length;out.set(msg);
+  for(let i=0;i<msg.length;i++){const c=out[i];if(c){const lc=LOG[c];for(let j=1;j<G;j++)out[i+j]^=EXP[gl[j]+lc];}}
+  out.set(msg);return out}
+function syndromes(m,nsym){const s=new Array(nsym+1).fill(0);for(let i=0;i<nsym;i++)s[i+1]=pEval(m,gpow(2,i));return s}
+function errataLoc(pos){let e=[1];for(const i of pos)e=pMul(e,pAdd([1],[gpow(2,i),0]));return e}
+function errEval(s,loc,nsym){return pDiv(pMul(s,loc),[1].concat(new Array(nsym+1).fill(0)))[1]}
+function correctErrata(m,s,pos){
+  const cp=pos.map(p=>m.length-1-p),loc=errataLoc(cp),ev=errEval(s.slice().reverse(),loc,loc.length-1).reverse();
+  const X=cp.map(c=>gpow(2,-(255-c))),E=new Array(m.length).fill(0);
+  for(let i=0;i<X.length;i++){const Xi=X[i],xi=ginv(Xi);let lp=1;for(let j=0;j<X.length;j++)if(j!==i)lp=gmul(lp,1^gmul(xi,X[j]));
+    let y=gmul(Xi,pEval(ev.slice().reverse(),xi));if(!lp)throw Error('mag');E[pos[i]]=gdiv(y,lp)}
+  return pAdd(m,E)}
+function findErrLoc(s,nsym,ec){let L=[1],O=[1];const sh=s.length>nsym?s.length-nsym:0;
+  for(let i=0;i<nsym-ec;i++){const K=i+sh;let d=s[K];for(let j=1;j<L.length;j++)d^=gmul(L[L.length-1-j],s[K-j]);O=O.concat([0]);
+    if(d){if(O.length>L.length){const N=pScale(O,d);O=pScale(L,ginv(d));L=N}L=pAdd(L,pScale(O,d))}}
+  while(L.length&&!L[0])L.shift();const e=L.length-1;if((e-ec)*2+ec>nsym)throw Error('too many');return L}
+function findErrs(loc,n){const e=loc.length-1,p=[];for(let i=0;i<n;i++)if(!pEval(loc,gpow(2,i)))p.push(n-1-i);if(p.length!==e)throw Error('chien');return p}
+function forney(s,pos,n){const f=s.slice(1);for(const p of pos){const x=gpow(2,n-1-p);for(let j=0;j<f.length-1;j++)f[j]=gmul(f[j],x)^f[j+1]}return f}
+// returns {data,fixed} or throws
+function synZero(m,nsym){for(let i=0;i<nsym;i++){let y=0;for(let j=0;j<m.length;j++)y=(y?EXP[LOG[y]+i]:0)^m[j];if(y)return false}return true}
+function rsDecode(cw,nsym,eras){
+  if(!(eras&&eras.length)&&synZero(cw,nsym))return{data:cw.slice(0,cw.length-nsym),fixed:0};
+  let m=Array.from(cw);eras=eras||[];for(const e of eras)m[e]=0;
+  if(eras.length>nsym)throw Error('too many erasures');
+  let s=syndromes(m,nsym);if(s.every(v=>!v))return{data:m.slice(0,m.length-nsym),fixed:0};
+  const fs=forney(s,eras,m.length),loc=findErrLoc(fs,nsym,eras.length),ep=findErrs(loc.slice().reverse(),m.length);
+  m=correctErrata(m,s,eras.concat(ep));s=syndromes(m,nsym);if(s.some(v=>v))throw Error('uncorrectable');
+  return{data:m.slice(0,m.length-nsym),fixed:eras.length+ep.length}}
+
+// CRC32
+const CRCT=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CRCT[n]=c>>>0}
+function crc32(b){let c=~0;for(let i=0;i<b.length;i++)c=CRCT[(c^b[i])&255]^(c>>>8);return(~c)>>>0}
+function crcStr(s){let c=~0;for(let i=0;i<s.length;i++)c=CRCT[(c^s.charCodeAt(i))&255]^(c>>>8);return((~c)>>>0)&0xffff}
+// base64url
+const B64='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_',B64R=new Int16Array(128).fill(-1);for(let i=0;i<64;i++)B64R[B64.charCodeAt(i)]=i;
+function b64e(b){let s='';for(let i=0;i<b.length;i+=3){const n=(b[i]<<16)|((b[i+1]||0)<<8)|(b[i+2]||0),r=b.length-i;s+=B64[n>>18&63]+B64[n>>12&63]+(r>1?B64[n>>6&63]:'')+(r>2?B64[n&63]:'')}return s}
+function b64d(s,len){const o=new Uint8Array(len);let bits=0,acc=0,k=0;for(let i=0;i<s.length&&k<len;i++){const v=B64R[s.charCodeAt(i)];if(v<0)return null;acc=(acc<<6)|v;bits+=6;if(bits>=8){bits-=8;o[k++]=(acc>>bits)&255}}return k===len?o:null}
+
+const LB=48;let __lt=0;const yld=()=>new Promise(r=>setTimeout(r,0));const MAIN=!!self.__main;
+const Y=async()=>{if(MAIN&&Date.now()-__lt>60){__lt=Date.now();await yld()}};
+const post=(o,t)=>self.postMessage(o,t||[]);
+let lastP=0;const prog=(stage,p)=>{const now=Date.now();if(p<1&&now-lastP<120)return;lastP=now;post({type:'prog',stage,p})};
+function paeth(a,b,c){const p=a+b-c,pa=p>a?p-a:a-p,pb=p>b?p-b:b-p,pc=p>c?p-c:c-p;return pa<=pb&&pa<=pc?a:pb<=pc?b:c}
+async function filt(d,w,h,ch,inv,stage){const o=new Uint8Array(d.length),rs=w*ch,R=inv?o:d;
+  for(let y=0;y<h;y++){const r=y*rs;for(let x=0;x<rs;x++){const i=r+x,a=x>=ch?R[i-ch]:0,b=y?R[i-rs]:0,c=x>=ch&&y?R[i-rs-ch]:0,p=paeth(a,b,c);o[i]=inv?(d[i]+p)&255:(d[i]-p)&255}if((y&63)===0){prog(stage,y/h);await Y()}}return o}
+async function collect(readable,size){const rd=readable.getReader(),parts=[];let n=0;
+  if(size){const o=new Uint8Array(size);for(;;){const {done,value}=await rd.read();if(done)break;if(n+value.length>size)throw Error('数据长度不符');o.set(value,n);n+=value.length}if(n!==size)throw Error('解压后的长度不对');return o}
+  for(;;){const {done,value}=await rd.read();if(done)break;parts.push(value);n+=value.length}const o=new Uint8Array(n);n=0;for(const p of parts){o.set(p,n);n+=p.length}return o}
+const KIT=600000,hx=b=>Array.from(b,v=>v.toString(16).padStart(2,'0')).join(''),unhx=s=>new Uint8Array((s.match(/../g)||[]).map(v=>parseInt(v,16)));
+async function deriveKey(pwd,salt,it){const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pwd),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+function hdr(m){let hs='PXC1;'+Object.entries(m).map(([a,v])=>a+'='+v).join(';');return'['+hs+';h='+crcStr(hs).toString(16).padStart(4,'0')+']'}
+
+async function enc(d){
+  const {w,h,bits,z,nsym}=d,ch=d.a?4:3;let inter=d.rgb;
+  if(d.a){inter=new Uint8Array(w*h*4);const rgb=d.rgb,a=d.a;for(let i=0,j=0,k=0;i<w*h;i++){inter[j++]=rgb[k++];inter[j++]=rgb[k++];inter[j++]=rgb[k++];inter[j++]=a[i]}}
+  const rawLen=inter.length;let payload=inter;
+  if(z){const f=await filt(inter,w,h,ch,false,'预测滤波');inter=null;prog('压缩',0);payload=await collect(new Blob([f]).stream().pipeThrough(new CompressionStream('deflate')))}
+  const payloadLen=payload.length;let hm={w,h,ch,b:bits,z};
+  if(d.pwd){prog('加密',0);const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveKey(d.pwd,salt,KIT);
+    const inner=new Uint8Array(11+payload.length),dv=new DataView(inner.buffer);dv.setUint32(0,w);dv.setUint32(4,h);inner[8]=ch;inner[9]=bits;inner[10]=z;inner.set(payload,11);payload=null;
+    payload=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,inner));hm={w:0,h:0,ch:0,b:0,z:1,x:1,s:hx(salt),i:hx(iv),k:KIT}}
+  const k=255-nsym,B=Math.max(1,Math.ceil(payload.length/k)),n=255,total=B*n,stream=new Uint8Array(total),blk=new Uint8Array(k);
+  for(let b=0;b<B;b++){blk.fill(0);blk.set(payload.subarray(b*k,Math.min(payload.length,(b+1)*k)));const cw=rsEncode(blk,nsym);for(let i=0;i<n;i++)stream[i*B+b]=cw[i];if((b&255)===0){prog('纠错编码',b/B);await Y()}}
+  const lines=Math.ceil(total/LB),hs=hdr({...hm,e:nsym,len:payload.length,B,n:lines,c:crc32(payload).toString(16)});
+  const HI=Math.max(1,Math.min(100,Math.ceil(lines/5))),parts=[],offsets=new Float64Array(lines+1);let off=0,buf=[];
+  const push=s=>{buf.push(s);off+=s.length+1;if(buf.length>=4096){parts.push(buf.join('\n')+'\n');buf=[]}};
+  push(hs);
+  for(let i=0;i<lines;i++){offsets[i]=off;const body=i.toString(36)+':'+b64e(stream.subarray(i*LB,Math.min(total,(i+1)*LB)));push('@'+body+'#'+crcStr(body).toString(16).padStart(4,'0'));if(i%HI===HI-1&&i<lines-1)push(hs);if((i&4095)===0){prog('生成文本',i/lines);await Y()}}
+  offsets[lines]=off;push(hs);parts.push(buf.join('\n'));
+  const blob=new Blob(parts,{type:'text/plain'});
+  post({type:'enc',blob,offsets,head:hs,lines,len:blob.size,rawLen,payloadLen,ch,enc:!!d.pwd},[offsets.buffer])}
+
+async function* chunks(blobs,size){let done=0,all=blobs.reduce((s,b)=>s+b.size,0)||1;for(const b of blobs)for(let o=0;o<b.size;o+=size){yield await b.slice(o,o+size).text();done+=Math.min(size,b.size-o);chunks.p=done/all}}
+async function dec(d){
+  const blobs=d.blobs,CS=8<<20,re=/\[(PXC1;[^\[\]]*?);h=([0-9a-f]{4})\]/g,re2=/\[PXC[^\[\]@]{20,300}\]/g;let meta=null,tail='';const votes={};let cands=0;
+  const parse=str=>{const m={};for(const kv of str.split(';')){const q=kv.indexOf('=');if(q>0)m[kv.slice(0,q)]=kv.slice(q+1)}return m};
+  for await(const c of chunks(blobs,CS)){const s=tail+c.replace(/\s+/g,'');
+    for(const mt of s.matchAll(re))if(crcStr(mt[1]).toString(16).padStart(4,'0')===mt[2]){meta=parse(mt[1]);break}
+    if(meta)break;
+    if(cands<200)for(const mt of s.slice(tail.length?Math.max(0,tail.length-300):0).matchAll(re2)){cands++;const m=parse(mt[0].slice(1,-1));for(const k in m){(votes[k]=votes[k]||{})[m[k]]=(votes[k][m[k]]||0)+1}}
+    tail=s.slice(-700);prog('查找文件头',chunks.p)}
+  if(!meta&&cands){const m={};for(const k of ['w','h','ch','b','z','e','len','B','n','c','x','s','i','k']){const v=votes[k];if(!v)continue;m[k]=Object.entries(v).sort((a,b)=>b[1]-a[1])[0][0]}
+    const N=k=>+m[k];if(['w','h','ch','b','z','e','len','B','n'].every(k=>/^\d+$/.test(m[k]||''))&&/^[0-9a-f]+$/.test(m.c||'')&&N('n')===Math.ceil(N('B')*255/48)&&N('len')<=N('B')*(255-N('e'))&&(N('z')||N('len')===N('w')*N('h')*N('ch')))meta=m}
+  if(!meta)throw Error('找不到有效的文件头（[PXC1;…] 那一行全部损坏或没有粘贴进来）');
+  const nsym=+meta.e,B=+meta.B,lines=+meta.n,n=255,total=B*n,len=+meta.len;let w=+meta.w,h=+meta.h,ch=+meta.ch,bits=+meta.b,z=+meta.z;
+  const stream=new Uint8Array(total),ok=new Uint8Array(lines),sus=new Uint8Array(lines);
+  const fre=/^([0-9a-z]+):([A-Za-z0-9_-]+)#([0-9a-f]{4})/;
+  const handle=fr=>{const mm=fre.exec(fr);if(!mm)return;const i=parseInt(mm[1],36);if(!(i>=0&&i<lines)||ok[i])return;
+    const L=Math.min(LB,total-i*LB),b=b64d(mm[2],L);if(!b)return;
+    if(crcStr(mm[1]+':'+mm[2]).toString(16).padStart(4,'0')!==mm[3]){if(!sus[i]){stream.set(b,i*LB);sus[i]=1}return}
+    stream.set(b,i*LB);ok[i]=1;sus[i]=0};
+  let carry='';
+  for await(const c of chunks(blobs,CS)){const s=carry+c.replace(/\s+/g,''),last=s.lastIndexOf('@');if(last<0){carry=s.length<1e5?s:'';continue}
+    const ps=s.slice(0,last).split('@');for(const p of ps)handle(p);carry=s.slice(last+1);prog('读取数据行',chunks.p);await Y()}
+  handle(carry);
+  let bad=0,missing=0;const eras=Array.from({length:B},()=>[]),miss=Array.from({length:B},()=>[]),ranges=[];
+  for(let i=0;i<lines;i++)if(!ok[i]){bad++;if(!sus[i]){missing++;const r=ranges[ranges.length-1];if(r&&r[1]===i-1)r[1]=i;else ranges.push([i,i])}
+    for(let p=i*LB;p<Math.min(total,(i+1)*LB);p++){eras[p%B].push(Math.floor(p/B));if(!sus[i])miss[p%B].push(Math.floor(p/B))}}
+  const k=n-nsym,out=new Uint8Array(B*k),cw=new Uint8Array(n);let fixed=0,failed=0;
+  for(let b=0;b<B;b++){for(let i=0;i<n;i++)cw[i]=stream[i*B+b];
+    let r=null;try{r=rsDecode(cw,nsym,eras[b])}catch(e){try{r=rsDecode(cw,nsym,miss[b])}catch(e2){}}
+    if(r){out.set(r.data,b*k);fixed+=r.fixed}else{failed++;out.set(cw.subarray(0,k),b*k)}if((b&255)===0){prog('纠错',b/B);await Y()}}
+  const payload=out.subarray(0,len),crcOk=crc32(payload).toString(16)===meta.c;
+  const stats={lines,badLines:bad,missing,blocks:B,failed,fixed,crcOk};
+  if(!crcOk&&z){post({type:'decfail',meta,stats,ranges:ranges.slice(0,40),rangeCount:ranges.length});return}
+  let raw,payload2=payload;
+  if(meta.x==='1'){
+    if(!d.pwd){post({type:'needpwd',stats});return}
+    prog('解密',0);let pt;try{pt=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unhx(meta.i)},await deriveKey(d.pwd,unhx(meta.s),+meta.k||KIT),payload))}catch(e){post({type:'badpwd',stats});return}
+    const dv=new DataView(pt.buffer);w=dv.getUint32(0);h=dv.getUint32(4);ch=pt[8];bits=pt[9];z=pt[10];payload2=pt.subarray(11);Object.assign(meta,{w,h,ch,b:bits,z})}
+  if(z){prog('解压',0);let inf;try{inf=await collect(new Blob([payload2]).stream().pipeThrough(new DecompressionStream('deflate')),w*h*ch)}catch(e){throw Error('解压失败：'+e.message)}raw=await filt(inf,w,h,ch,true,'还原像素')}
+  else{raw=new Uint8Array(w*h*ch);raw.set(payload2.subarray(0,w*h*ch))}
+  const EX=new Uint8Array(256);for(let v=0;v<256;v++){let o=v<<(8-bits),s=bits;while(s<8){o|=o>>s;s*=2}EX[v]=bits===8?v:o&255}
+  const png=await toPNG(raw,w,h,ch,EX);
+  const sc=Math.min(1,1000/Math.max(w,h)),pw=Math.max(1,Math.round(w*sc)),ph=Math.max(1,Math.round(h*sc)),pv=new Uint8ClampedArray(pw*ph*4);
+  for(let y=0;y<ph;y++){const sy=Math.min(h-1,Math.floor(y/sc));for(let x=0;x<pw;x++){const sx=Math.min(w-1,Math.floor(x/sc)),s=(sy*w+sx)*ch,t=(y*pw+x)*4;pv[t]=EX[raw[s]];pv[t+1]=EX[raw[s+1]];pv[t+2]=EX[raw[s+2]];pv[t+3]=ch===4?EX[raw[s+3]]:255}}
+  post({type:'dec',meta,stats,ranges:ranges.slice(0,40),rangeCount:ranges.length,png,pv,pw,ph,raw},[pv.buffer,raw.buffer])}
+
+function crcU(c,b){for(let i=0;i<b.length;i++)c=CRCT[(c^b[i])&255]^(c>>>8);return c}
+function chunk(type,data){const o=new Uint8Array(12+data.length),dv=new DataView(o.buffer);dv.setUint32(0,data.length);for(let i=0;i<4;i++)o[4+i]=type.charCodeAt(i);o.set(data,8);dv.setUint32(8+data.length,(~crcU(~0,o.subarray(4,8+data.length)))>>>0);return o}
+async function toPNG(raw,w,h,ch,EX){
+  const cs=new CompressionStream('deflate'),wr=cs.writable.getWriter(),rd=cs.readable.getReader(),idat=[];
+  const reading=(async()=>{for(;;){const {done,value}=await rd.read();if(done)break;idat.push(value)}})();
+  const rs=w*ch;let prev=new Uint8Array(rs),cur=new Uint8Array(rs);const BS=Math.max(rs+1,1<<20);let bat=new Uint8Array(BS),bp=0;
+  for(let y=0;y<h;y++){const r=y*rs;for(let x=0;x<rs;x++)cur[x]=EX[raw[r+x]];
+    if(bp+rs+1>BS){await wr.write(bat.slice(0,bp));bp=0}
+    bat[bp++]=4;for(let x=0;x<rs;x++){const a=x>=ch?cur[x-ch]:0,c=x>=ch?prev[x-ch]:0;bat[bp++]=(cur[x]-paeth(a,prev[x],c))&255}
+    const t=prev;prev=cur;cur=t;if((y&63)===0){prog('生成 PNG',y/h);await Y()}}
+  if(bp)await wr.write(bat.slice(0,bp));await wr.close();await reading;
+  const ih=new Uint8Array(13),dv=new DataView(ih.buffer);dv.setUint32(0,w);dv.setUint32(4,h);ih[8]=8;ih[9]=ch===4?6:2;
+  return new Blob([new Uint8Array([137,80,78,71,13,10,26,10]),chunk('IHDR',ih),...idat.map(d=>chunk('IDAT',d)),chunk('IEND',new Uint8Array(0))],{type:'image/png'})}
+
+self.onmessage=async e=>{try{if(e.data.cmd==='enc')await enc(e.data);else await dec(e.data)}catch(err){post({type:'err',msg:(err&&err.message)||String(err)})}};
+</script>
+<script>{
+const $=id=>document.getElementById(id);
+const fmt=n=>n>=1073741824?(n/1073741824).toFixed(2)+' GB':n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?(n/1024).toFixed(1)+' KB':n+' B';
+const hex=(r,g,b)=>'#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+const WURL=URL.createObjectURL(new Blob([$('wsrc').textContent],{type:'text/javascript'}));
+const LIB={heic:'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js',pako:'https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js',utif:'https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js',upng:'https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js'};
+const tick=()=>new Promise(r=>setTimeout(r,0));
+let src=null,encRes=null,decParts=[],decRaw=null,pngUrl=null,busy=false,dbusy=false,again=false,pwdT=0;
+function say(el,t,c){el.className='msg'+(c?' '+c:'');el.textContent=t}
+function bar(id,p){const b=$(id);if(p==null){b.classList.remove('on');return}b.classList.add('on');b.firstChild.style.width=(p*100).toFixed(1)+'%'}
+function showStats(el,arr){el.innerHTML=arr.map(([v,l])=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('')}
+let noWorker=false;
+function runMain(msg,onProg){return new Promise((res,rej)=>{const fake={__main:true,postMessage:d=>{if(d.type==='prog')onProg(d.stage,d.p);else d.type==='err'?rej(Error(d.msg)):res(d)},onmessage:null};
+  try{new Function('self',$('wsrc').textContent)(fake);fake.onmessage({data:msg})}catch(e){rej(e)}})}
+function runWorker(msg,transfer,onProg){if(noWorker)return runMain(msg,onProg);let w;try{w=new Worker(WURL)}catch(e){noWorker=true;return runMain(msg,onProg)}
+  return new Promise((res,rej)=>{
+  w.onmessage=e=>{const d=e.data;if(d.type==='prog')onProg(d.stage,d.p);else{w.terminate();d.type==='err'?rej(Error(d.msg)):res(d)}};
+  w.onerror=e=>{w.terminate();rej(Error(e.message||'后台计算出错，可能是内存不够'))};w.postMessage(msg,transfer)})}
+function loadLib(u){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=u;const t=setTimeout(()=>rej(Error('解码库加载超时，请检查网络')),15000);s.onload=()=>{clearTimeout(t);res()};s.onerror=()=>{clearTimeout(t);rej(Error('解码库加载失败，请检查网络'))};document.head.appendChild(s)})}
+
+async function openImage(f){
+  const n=(f.name||'').toLowerCase(),t=f.type||'';
+  if(/\.(heic|heif)$/.test(n)||/hei[cf]/.test(t)){try{return await createImageBitmap(f)}catch(e){}
+    say($('encMsg'),'正在加载 HEIC 解码库…');if(!window.heic2any)await loadLib(LIB.heic);let o=await heic2any({blob:f,toType:'image/png'});return createImageBitmap(Array.isArray(o)?o[0]:o)}
+  if(/\.tiff?$/.test(n)||/tiff/.test(t)){say($('encMsg'),'正在解码 TIFF…');if(!window.UTIF){await loadLib(LIB.pako);await loadLib(LIB.utif)}
+    const buf=await f.arrayBuffer(),ifds=UTIF.decode(buf);UTIF.decodeImage(buf,ifds[0]);const px=UTIF.toRGBA8(ifds[0]);
+    return createImageBitmap(new ImageData(new Uint8ClampedArray(px.buffer,px.byteOffset,px.length),ifds[0].width,ifds[0].height))}
+  if(/\.png$/.test(n)||t==='image/png'){try{const buf=await f.arrayBuffer(),u=new Uint8Array(buf,0,Math.min(buf.byteLength,1<<16));let hasA=u[25]===4||u[25]===6;
+      if(!hasA)for(let i=8;i+8<u.length;){const L=(u[i]<<24|u[i+1]<<16|u[i+2]<<8|u[i+3])>>>0,ty=String.fromCharCode(u[i+4],u[i+5],u[i+6],u[i+7]);if(ty==='tRNS'){hasA=true;break}if(ty==='IDAT')break;i+=L+12}
+      if(hasA){say($('encMsg'),'透明 PNG：用精确解码器读取，避免浏览器丢失透明区域的颜色…');if(!window.pako)await loadLib(LIB.pako);if(!window.UPNG)await loadLib(LIB.upng);
+        const p=UPNG.decode(buf);return{raw:new Uint8Array(UPNG.toRGBA8(p)[0]),width:p.width,height:p.height}}}catch(e){}}
+  try{return await createImageBitmap(f,{premultiplyAlpha:'none'})}catch(e){}
+  const img=new Image();img.src=URL.createObjectURL(f);try{await img.decode()}catch(e){throw Error('浏览器无法解码这个文件（格式不支持或图片超出了浏览器能解码的大小）')}
+  if(!img.naturalWidth){img.width=1024;img.height=1024}return img}
+const dims=s=>[s.naturalWidth||s.width,s.naturalHeight||s.height];
+
+async function loadFile(f){if(!f||busy)return;say($('encMsg'),'正在打开图片…');
+  try{src=await openImage(f);src.fileName=f.name;src.fileSize=f.size;encode()}catch(e){say($('encMsg'),'打开失败：'+e.message,'bad')}}
+
+async function encode(){clearTimeout(pwdT);if(!src)return;if(busy){again=true;return}busy=true;again=false;const m=$('encMsg');setEncBtns(false);
+ try{const [W0,H0]=dims(src),ms=+$('maxSide').value,sc=ms&&Math.max(W0,H0)>ms?ms/Math.max(W0,H0):1;
+  const w=Math.max(1,Math.round(W0*sc)),h=Math.max(1,Math.round(H0*sc));let s=src;
+  if(src.raw&&!src.bmp)src.bmp=await createImageBitmap(new ImageData(new Uint8ClampedArray(src.raw.buffer,src.raw.byteOffset,src.raw.length),W0,H0),{premultiplyAlpha:'none'});
+  const exact=src.raw&&sc===1;if(src.raw)s=src.bmp;
+  if(sc<1){say(m,'正在缩小…');try{s=await createImageBitmap(src,{resizeWidth:w,resizeHeight:h,resizeQuality:'high'})}catch(e){const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(src,0,0,w,h);s=c}}
+  encSrc=exact?src:s;preview(s,w,h);
+  const bits=+$('bits').value,sh=8-bits,T=4096,cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+  let rgb,a=null;try{rgb=new Uint8Array(w*h*3)}catch(e){throw Error(`内存不够：${w}×${h} 需要约 ${fmt(w*h*9)}，请换用电脑或调小尺寸`)}
+  const plain=[];const tiles=Math.ceil(w/T)*Math.ceil(h/T);let done=0;
+  for(let ty=0;ty<h;ty+=T)for(let tx=0;tx<w;tx+=T){const tw=Math.min(T,w-tx),th=Math.min(T,h-ty);let d;
+    if(exact){d=new Uint8Array(tw*th*4);for(let yy=0;yy<th;yy++)d.set(src.raw.subarray(((ty+yy)*w+tx)*4,((ty+yy)*w+tx+tw)*4),yy*tw*4)}
+    else{cv.width=tw;cv.height=th;cx.drawImage(s,tx,ty,tw,th,0,0,tw,th);d=cx.getImageData(0,0,tw,th).data}
+    for(let yy=0;yy<th;yy++){let idx=(ty+yy)*w+tx,i=yy*tw*4;for(let xx=0;xx<tw;xx++,idx++,i+=4){const q=idx*3;rgb[q]=d[i]>>sh;rgb[q+1]=d[i+1]>>sh;rgb[q+2]=d[i+2]>>sh;
+      if(d[i+3]<255&&!a){a=new Uint8Array(w*h).fill(255>>sh)}if(a)a[idx]=d[i+3]>>sh}}
+    if(tx===0&&ty===0)for(let n=0;n<Math.min(40,tw*th,w*h);n++){const x=n%w,y=Math.floor(n/w);if(x<tw&&y<th){const i=(y*tw+x)*4;plain.push([n,x,y,d[i],d[i+1],d[i+2],d[i+3]])}}
+    done++;bar('bar1',done/tiles*.25);say(m,`读取像素 ${Math.round(done/tiles*100)}%`);await tick()}
+  const z=+$('zip').value,nsym=+$('ecc').value,ch=a?4:3;
+  let ps='序号   x    y    颜色      R   G   B'+(a?'   A':'')+'\n';for(const [n,x,y,r,g,b,al] of plain)ps+=`${String(n).padEnd(6)} ${String(x).padEnd(4)} ${String(y).padEnd(4)} ${hex(r,g,b)}  ${[r,g,b].concat(a?[al]:[]).map(v=>String(v).padStart(3)).join(' ')}\n`;
+  $('plainPre').textContent=ps+'…（共 '+(w*h).toLocaleString()+' 个像素）';
+  const pwd=$('pwd').value;encPwd=pwd;const r=await runWorker({cmd:'enc',rgb,a,w,h,bits,z,nsym,pwd},a?[rgb.buffer,a.buffer]:[rgb.buffer],(st,p)=>{bar('bar1',.25+p*.75);say(m,`${st} ${Math.round(p*100)}%`)});
+  r.w=w;r.h=h;r.bits=bits;r.full=r.len<=3e7?await r.blob.text():null;encRes=r;segCache={k:'',t:null};
+  const show=r.len<=3e6?r.full:await r.blob.slice(0,2e5).text()+'\n\n……（文本共 '+r.len.toLocaleString()+' 个字符，太长只显示开头。请用下方按钮复制、分段复制或保存）';
+  $('out').value=show;
+  showStats($('encStats'),[[w+'×'+h,'像素尺寸'],[(w*h).toLocaleString(),'像素个数'],[r.len.toLocaleString(),'文本字符数'],[r.lines.toLocaleString(),'数据行']]);
+  say(m,`${r.enc?'已用密码加密。':''}原始像素数据 ${fmt(r.rawLen)}，${z?'压缩后 '+fmt(r.payloadLen)+'，':''}含纠错的文本 ${fmt(r.len)}。`+(r.len>1e6?' 文本较长，发聊天软件建议用分段复制。':''),'good');
+  $('seg').hidden=r.len<=2e4;segUpdate();prepSeg();setEncBtns(true);$('hurt').disabled=r.len>3e7}
+ catch(e){say(m,'编码失败：'+e.message,'bad')}
+ finally{bar('bar1',null);busy=false;if(again)encode()}}
+let encSrc=null;
+function setEncBtns(on){['copy','dl','toDec','hurt'].forEach(i=>$(i).disabled=!on)}
+function preview(s,w,h){const k=Math.min(1,1000/Math.max(w,h)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));
+  c.getContext('2d').drawImage(s,0,0,c.width,c.height);const d=$('drop');d.innerHTML='';d.appendChild(c);
+  const p=document.createElement('canvas');p.width=p.height=1;const px=p.getContext('2d',{willReadFrequently:true});
+  c.onmousemove=e=>{const r=c.getBoundingClientRect(),x=Math.floor((e.clientX-r.left)/r.width*w),y=Math.floor((e.clientY-r.top)/r.height*h);if(x<0||y<0||x>=w||y>=h)return;
+    let v;if(encSrc.raw){const i=(y*w+x)*4;v=encSrc.raw.subarray(i,i+4)}else{px.clearRect(0,0,1,1);px.drawImage(encSrc,x,y,1,1,0,0,1,1);v=px.getImageData(0,0,1,1).data}const hx=hex(v[0],v[1],v[2]);
+    $('probe1').innerHTML=`<span class="sw" style="background:${hx}"></span>(${x}, ${y}) ${hx} RGB ${v[0]},${v[1]},${v[2]}${v[3]<255?' A '+v[3]:''}`};
+  c.onmouseleave=()=>$('probe1').textContent=''}
+
+function segInfo(){const size=+$('segSize').value,r=encRes,per=Math.max(1,Math.floor((size-r.head.length-2)/((r.offsets[r.lines]-r.offsets[0])/r.lines))),cnt=Math.ceil(r.lines/per);return{per,cnt}}
+function segUpdate(){if(!encRes)return;const {cnt}=segInfo();$('segOf').textContent='/ '+cnt+' 段';$('segNo').max=cnt;if(+$('segNo').value>cnt)$('segNo').value=cnt}
+async function segText(i){const r=encRes,{per}=segInfo(),a=i*per,b=Math.min(r.lines,a+per);return r.head+'\n'+await r.blob.slice(r.offsets[a],r.offsets[b]).text()+r.head}
+function execCopy(t){const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();try{ta.setSelectionRange(0,t.length)}catch(e){}let ok=false;try{ok=document.execCommand('copy')}catch(e){}ta.remove();return ok}
+function manual(t,why){const o=$('out');if(t.length<=5e6){o.value=t;o.focus();o.select();try{o.setSelectionRange(0,t.length)}catch(e){}say($('encMsg'),why+'：已把内容放进上面的文本框并全选，请按 Ctrl+C（手机上点文本框选择“拷贝”）。','bad')}
+  else say($('encMsg'),why+'：内容太长没法手动选中，请用“分段复制”（每段 10 万字以内）或“保存为 .txt”。','bad')}
+// 点击时同步执行：先用 execCommand，再用 Clipboard API，最后手动全选
+function copyNow(t,okMsg){if(t==null){say($('encMsg'),'正在准备内容，请再点一次','bad');return}
+  if(execCopy(t)){say($('encMsg'),okMsg,'good');return Promise.resolve(true)}
+  let p;try{p=navigator.clipboard.writeText(t)}catch(e){p=Promise.reject(e)}
+  return p.then(()=>{say($('encMsg'),okMsg,'good');return true},()=>{manual(t,'浏览器不允许自动复制');return false})}
+let segCache={k:'',t:null};
+async function prepSeg(){if(!encRes)return;const {cnt}=segInfo(),i=Math.min(cnt,Math.max(1,+$('segNo').value||1)),k=$('segSize').value+'/'+i;if(segCache.k===k&&segCache.t!=null)return;segCache={k,t:null};const t=await segText(i-1);if(segCache.k===k)segCache.t=t}
+let DL=null;if(window.claude&&claude.use)claude.use('downloads').then(d=>DL=d).catch(()=>{});
+async function saveBlob(b,name,el){if(DL){try{await DL.save({filename:name,data:b});say(el,'已保存 '+name,'good')}catch(e){say(el,e&&e.code==='declined'?'已取消保存':'保存失败：'+((e&&e.message)||e),'bad')}return}
+  say(el,'已发起下载 '+name,'good');try{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),6e4)}catch(e){}}
+
+function renderParts(){$('parts').innerHTML=decParts.map((p,i)=>`<span>${p.label} · ${p.blob.size.toLocaleString()} 字<button data-i="${i}" aria-label="移除">✕</button></span>`).join('')}
+function addPart(blob,label){decParts.push({blob,label});renderParts()}
+async function decode(){if(dbusy)return;const m=$('decMsg'),parts=decParts.map(p=>p.blob);if($('inp').value.trim())parts.push(new Blob([$('inp').value]));
+ if(!parts.length){say(m,'先粘贴编码文本','bad');return}dbusy=true;$('go').disabled=true;
+ try{const r=await runWorker({cmd:'dec',blobs:parts,pwd:$('pwd2').value},[],(st,p)=>{bar('bar2',p);say(m,`${st} ${Math.round(p*100)}%`)});
+  if(r.type==='needpwd'){say(m,'这段文本是加密的，请在“解密密码”里填写密码后再点还原。','bad');$('pwd2').focus();return}
+  if(r.type==='badpwd'){say(m,'密码错误，或者内容被改动过。文本本身已通过纠错校验，请检查密码（区分大小写）。','bad');$('pwd2').focus();$('pwd2').select();return}
+  const s=r.stats,w=+r.meta.w,h=+r.meta.h;
+  showStats($('decStats'),[[w+'×'+h,'像素尺寸'],[s.badLines.toLocaleString()+' / '+s.lines.toLocaleString(),'损坏或缺失的行'],[s.fixed.toLocaleString(),'纠正的字节'],[s.failed?s.failed+' 组':'无','无法修复的组']]);
+  const rg=r.rangeCount?`缺少的行：${r.ranges.slice(0,8).map(([a,b])=>a===b?'@'+a.toString(36):'@'+a.toString(36)+' ~ @'+b.toString(36)).join('、')}${r.rangeCount>8?' 等 '+r.rangeCount+' 处':''}。`:'';
+  if(r.type==='decfail'){say(m,`损坏或缺失太多，超出了纠错能力。${rg}把缺的分段补贴进来再点还原；或编码时提高纠错强度、关闭压缩。`,'bad');return}
+  decRaw={raw:r.raw,w,h,ch:+r.meta.ch,bits:+r.meta.b};
+  const c=document.createElement('canvas');c.width=r.pw;c.height=r.ph;c.getContext('2d').putImageData(new ImageData(r.pv,r.pw,r.ph),0,0);
+  if(pngUrl)URL.revokeObjectURL(pngUrl);pngUrl=URL.createObjectURL(r.png);decPng=r.png;
+  const box=$('res');box.innerHTML='';const img=new Image();img.alt='还原的图片';img.style.imageRendering=w<=r.pw?'pixelated':'auto';
+  img.onerror=()=>{box.innerHTML='';box.appendChild(c);probe(c)};img.onload=()=>probe(img);img.src=pngUrl;box.appendChild(img);$('saveRow').hidden=false;
+  if(s.crcOk)say(m,(s.badLines?`校验通过：${s.badLines} 行有损坏或缺失，已全部纠正，`:'校验通过：文本完好，')+`和原图逐像素一致。PNG 大小 ${fmt(r.png.size)}。`,'good');
+  else say(m,`部分区域无法修复（${s.failed} 组），图片会有杂点。${rg}`,'bad')}
+ catch(e){say(m,'还原失败：'+e.message,'bad')}
+ finally{bar('bar2',null);dbusy=false;$('go').disabled=false}}
+let decPng=null;
+const EXl=bits=>{const t=new Uint8Array(256);for(let v=0;v<256;v++){let o=v<<(8-bits),s=bits;while(s<8){o|=o>>s;s*=2}t[v]=bits===8?v:o&255}return t};
+function probe(el){const d=decRaw,EX=EXl(d.bits);el.onmousemove=e=>{const r=el.getBoundingClientRect(),x=Math.floor((e.clientX-r.left)/r.width*d.w),y=Math.floor((e.clientY-r.top)/r.height*d.h);if(x<0||y<0||x>=d.w||y>=d.h)return;
+  const i=(y*d.w+x)*d.ch,v=[EX[d.raw[i]],EX[d.raw[i+1]],EX[d.raw[i+2]]],hx=hex(...v);$('probe2').innerHTML=`<span class="sw" style="background:${hx}"></span>(${x}, ${y}) ${hx} RGB ${v.join(',')}${d.ch===4?' A '+EX[d.raw[i+3]]:''}`};el.onmouseleave=()=>$('probe2').textContent=''}
+
+function hurt(t){let L=t.split('\n');const n0=L.length;L=L.filter(()=>Math.random()>0.05);
+ let s=L.join(Math.random()>.5?'':'\n').split(''),k=Math.max(5,Math.round(n0*0.03));const A='ABCxyz019_-';for(let i=0;i<k;i++)s[Math.random()*s.length|0]=A[Math.random()*A.length|0];
+ return '（被破坏过的文本：删掉约 5% 的行、改了 '+k+' 个字符'+(s.includes('\n')?'':'、去掉了所有换行')+'）\n'+s.join('')}
+
+$('drop').onclick=()=>{if(!busy)$('file').click()};$('drop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}};
+$('file').onchange=e=>{loadFile(e.target.files[0]);e.target.value=''};
+const dz=$('drop');dz.ondragover=e=>{e.preventDefault();dz.classList.add('on')};dz.ondragleave=()=>dz.classList.remove('on');
+dz.ondrop=e=>{e.preventDefault();dz.classList.remove('on');loadFile(e.dataTransfer.files[0])};
+document.addEventListener('paste',e=>{if(e.target===$('inp'))return;const it=[...((e.clipboardData||{}).items||[])].find(i=>i.type.startsWith('image/'));if(it){e.preventDefault();loadFile(it.getAsFile())}});
+['maxSide','bits','ecc','zip'].forEach(i=>$(i).onchange=encode);
+let encPwd='';$('pwd').oninput=()=>{clearTimeout(pwdT);if(src)pwdT=setTimeout(encode,800)};$('pwd').onchange=()=>{if(src&&$('pwd').value!==encPwd)encode()};
+const stale=()=>{if(busy||(src&&$('pwd').value!==encPwd)){say($('encMsg'),'设置有改动，正在重新编码，完成后再点一次','bad');if(!busy)encode();return true}return false};
+document.querySelectorAll('.eye').forEach(b=>b.onclick=()=>{const i=$(b.dataset.for),show=i.type==='password';i.type=show?'text':'password';b.textContent=show?'隐藏':'显示'});
+$('pwd2').onkeydown=e=>{if(e.key==='Enter')decode()};
+$('segSize').onchange=()=>{segUpdate();prepSeg()};
+$('copy').onclick=()=>{if(stale())return;if(!encRes)return;if(encRes.full==null){say($('encMsg'),'文本超过 3000 万字，一次复制不了：请用“分段复制”或“保存为 .txt”。','bad');return}copyNow(encRes.full,'已复制 '+encRes.full.length.toLocaleString()+' 个字符')};
+$('dl').onclick=()=>{if(encRes)saveBlob(encRes.blob,(src.fileName||'image').replace(/\.[^.]+$/,'')+'.pxc.txt',$('encMsg'))};
+$('segCopy').onclick=()=>{if(stale())return;const {cnt}=segInfo(),i=Math.min(cnt,Math.max(1,+$('segNo').value||1));const t=segCache.k===$('segSize').value+'/'+i?segCache.t:null;
+  if(t==null){prepSeg();say($('encMsg'),'正在准备这一段，请再点一次','bad');return}
+  copyNow(t,`已复制第 ${i} / ${cnt} 段（${t.length.toLocaleString()} 字）`).then(ok=>{if(ok&&i<cnt){$('segNo').value=i+1;prepSeg()}})};
+$('segNo').oninput=()=>prepSeg();
+$('toDec').onclick=()=>{if(stale())return;$('pwd2').value=$('pwd').value;decParts=[];addPart(encRes.blob,'上方编码结果');$('inp').value='';$('dec').scrollIntoView({behavior:'smooth'});decode()};
+$('hurt').onclick=async()=>{if(stale())return;$('pwd2').value=$('pwd').value;decParts=[];addPart(new Blob([hurt(encRes.full)]),'被破坏的文本');$('inp').value='';$('dec').scrollIntoView({behavior:'smooth'});decode()};
+$('inp').addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(t&&t.length>2e5){e.preventDefault();addPart(new Blob([t]),'粘贴 '+(decParts.length+1))}});
+$('inp').ondragover=e=>e.preventDefault();$('inp').ondrop=e=>{e.preventDefault();for(const f of e.dataTransfer.files)addPart(f,f.name)};
+$('addTxt').onclick=()=>$('txtFile').click();$('txtFile').onchange=e=>{for(const f of e.target.files)addPart(f,f.name);e.target.value=''};
+$('parts').onclick=e=>{const b=e.target.closest('button');if(b){decParts.splice(+b.dataset.i,1);renderParts()}};
+$('go').onclick=decode;$('clr').onclick=()=>{$('inp').value='';decParts=[];renderParts();$('decMsg').textContent='';$('decStats').innerHTML=''};
+$('dlPng').onclick=()=>{if(decPng)saveBlob(decPng,'restored.png',$('decMsg'))};
+}</script></body></html>
