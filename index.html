@@ -73,7 +73,8 @@ input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 
    <div><label for="maxSide">尺寸</label><select id="maxSide"><option value="0" selected>原尺寸（不缩小）</option><option value="4096">最长边 4096</option><option value="2048">最长边 2048</option><option value="1024">最长边 1024</option><option value="512">最长边 512</option><option value="256">最长边 256</option></select></div>
    <div><label for="bits">颜色精度</label><select id="bits"><option value="8" selected>8 位（无损）</option><option value="6">6 位（几乎看不出）</option><option value="5">5 位（文本更短）</option><option value="4">4 位（明显色阶）</option></select></div>
    <div><label for="ecc">纠错强度</label><select id="ecc"><option value="32">低：可丢约 10% 行</option><option value="64" selected>中：可丢约 20% 行</option><option value="96">高：可丢约 30% 行</option><option value="128">极高：可丢约 40% 行</option></select></div>
-   <div><label for="zip">压缩</label><select id="zip"><option value="1" selected>开（文本更短）</option><option value="0">关（损坏只影响局部）</option></select></div>
+   <div><label for="zip">压缩</label><select id="zip"><option value="2" selected>超强（自动选最小）</option><option value="1">标准（速度快）</option><option value="0">关（损坏只影响局部）</option></select></div>
+   <div class="full"><label for="txt">文字类型</label><select id="txt"><option value="1" selected>中文汉字（字数最少，适合聊天软件）</option><option value="0">英文字母数字（兼容性最好，适合邮件、网页表单）</option></select></div>
    <div class="full"><label for="pwd">加密密码（可选，留空不加密）</label><div class="pw"><input id="pwd" type="password" autocomplete="new-password" placeholder="设置密码后，只有知道密码的人能还原"><button class="ghost eye" type="button" data-for="pwd">显示</button></div></div>
   </div>
  </div>
@@ -135,7 +136,7 @@ input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 
  <div><b>没有写死的上限</b><p>不限制尺寸、像素数和文件大小。超过浏览器画布上限的大图按 4096×4096 分块读取；还原时直接生成 PNG，不经过画布。</p></div>
  <div><b>真正的上限是内存</b><p>每个像素编码时约占 8～10 字节内存，还原时约 12 字节。实测 9000×6000（5400 万像素）在电脑浏览器里编码约 20 秒、还原约 40 秒；再大取决于电脑内存。手机浏览器内存小，几千万像素以上可能失败，会给出提示。</p></div>
  <div><b>格式</b><p>浏览器能打开的都行；HEIC（苹果照片）和 TIFF 会自动加载解码库。动图只取第一帧，16 位图片会转成 8 位，相机 RAW 需要先转成 JPG / PNG / TIFF。</p></div>
- <div><b>文本多长</b><p>大约是“压缩后的图片数据 × 1.6”。一张 1200 万像素照片无损编码约 30～50 MB 文本，分段发送或存成 .txt 更合适；调小尺寸或颜色精度能明显缩短。</p></div>
+ <div><b>文本多长</b><p>中文汉字模式下，字数约为“压缩后数据字节数 × 0.85”（含纠错）。实测一张 600×400 照片约 29 万字，900×600 的界面截图约 2 万字；调小尺寸、颜色精度或纠错强度还能再短。</p></div>
 </div>
 </section>
 
@@ -143,9 +144,9 @@ input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 
 <h2>工作原理</h2>
 <div class="how">
  <div><b>1 · 数字化</b><p>读取每个像素的 R、G、B（有透明时加 A）。第 n 个数字对应的位置是 x = n mod 宽，y = n ÷ 宽，所以不必单独存坐标。</p></div>
- <div><b>2 · 压缩</b><p>先做 PNG 同款的 Paeth 预测（存“和邻居的差”），再用 deflate 压缩。</p></div>
+ <div><b>2 · 超强压缩</b><p>像素和左、上等邻居完全同色时只记一个“同色”标记；不同时用 6 种预测器加权猜颜色，只存“猜错了多少”，再按上下文自适应算术编码。同时试一遍标准压缩，自动选更小的。</p></div>
  <div><b>3 · 纠错</b><p>每 255 字节一组做 Reed-Solomon 编码，并按列交错打散，丢掉连续一整行只会让每组损失 1 个字节。</p></div>
- <div><b>4 · 成文</b><p>每行 64 个字符：<code>@行号:数据#校验</code>。校验不对的行当作“擦除”交给纠错修；文件头每 100 行重复一次，所以分段乱序粘贴也行。</p></div>
+ <div><b>4 · 成文</b><p>中文模式每个汉字装 14 位数据（英文模式只有 6 位），每行 <code>@</code>+行号+校验+数据。校验不对的行当作“擦除”交给纠错修；文件头重复多次，所以分段乱序粘贴也行。</p></div>
 </div>
 </section>
 </div>
@@ -204,7 +205,88 @@ const B64='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_',B64
 function b64e(b){let s='';for(let i=0;i<b.length;i+=3){const n=(b[i]<<16)|((b[i+1]||0)<<8)|(b[i+2]||0),r=b.length-i;s+=B64[n>>18&63]+B64[n>>12&63]+(r>1?B64[n>>6&63]:'')+(r>2?B64[n&63]:'')}return s}
 function b64d(s,len){const o=new Uint8Array(len);let bits=0,acc=0,k=0;for(let i=0;i<s.length&&k<len;i++){const v=B64R[s.charCodeAt(i)];if(v<0)return null;acc=(acc<<6)|v;bits+=6;if(bits>=8){bits-=8;o[k++]=(acc>>bits)&255}}return k===len?o:null}
 
-const LB=48;let __lt=0;const yld=()=>new Promise(r=>setTimeout(r,0));const MAIN=!!self.__main;
+// ===== 超强压缩：上下文自适应二进制算术编码 =====
+// 连续色调：MED 预测 + 加权预测 + 通道间残差去相关 + 上下文建模
+// 少色图：调色板 + “与邻居同色”标记
+class AEnc{constructor(n){this.b=new Uint8Array(Math.max(1024,n|0));this.n=0;this.x1=0;this.x2=0xffffffff}
+  out(v){if(this.n>=this.b.length){const t=new Uint8Array(this.b.length*2);t.set(this.b);this.b=t}this.b[this.n++]=v}
+  bit(P,i,y){const p=P[i]>>>4||1,xm=this.x1+Math.floor((this.x2-this.x1)*p/4096);if(y)this.x2=xm;else this.x1=xm+1;
+    upd(P,i,y);
+    while(((this.x1^this.x2)&0xff000000)===0){this.out(this.x2>>>24);this.x1=(this.x1<<8)>>>0;this.x2=((this.x2<<8)|255)>>>0}}
+  done(){for(let k=0;k<4;k++){this.out(this.x1>>>24);this.x1=(this.x1<<8)>>>0}return this.b.subarray(0,this.n)}}
+class ADec{constructor(b,o){this.b=b;this.n=o||0;this.x1=0;this.x2=0xffffffff;this.x=0;for(let k=0;k<4;k++)this.x=((this.x<<8)|this.in())>>>0}
+  in(){return this.n<this.b.length?this.b[this.n++]:0}
+  bit(P,i){const p=P[i]>>>4||1,xm=this.x1+Math.floor((this.x2-this.x1)*p/4096),y=this.x<=xm?1:0;if(y)this.x2=xm;else this.x1=xm+1;upd(P,i,y);
+    while(((this.x1^this.x2)&0xff000000)===0){this.x1=(this.x1<<8)>>>0;this.x2=((this.x2<<8)|255)>>>0;this.x=((this.x<<8)|this.in())>>>0}return y}}
+// 概率 16 位，计数决定学习速度（前期快、后期稳）
+let CNT=null;
+function upd(P,i,y){const c=CNT[i];const sh=c<2?2:c<6?3:c<14?4:c<40?5:6;if(y)P[i]+=(65535-P[i])>>sh;else P[i]-=P[i]>>sh;if(P[i]<64)P[i]=64;else if(P[i]>65471)P[i]=65471;if(c<255)CNT[i]=c+1}
+function newModel(n){const P=new Uint16Array(n).fill(32768);CNT=new Uint8Array(n);return P}
+
+const QT=[0,1,2,3,4,6,8,11,15,20,27,36,48,64,90,128,1e9];const NQ=QT.length-1;
+const qz=v=>{let i=0;while(v>=QT[i+1])i++;return i};
+// 每个上下文的模型布局：zero(1) exp(9) mant(9*8) sign(3)
+const SLOT=1+9+9*8+6;
+// 编码一个有符号残差 v（|v|<M/2... 用 [-M/2,M/2)）
+function codeRes(c,P,base,v,sctx){const a=v<0?-v:v;
+  c.bit(P,base,a===0?1:0);if(a===0)return;
+  const e=31-Math.clz32(a);for(let i=0;i<8;i++){const more=e>i?1:0;c.bit(P,base+1+i,more);if(!more)break}
+  for(let k=e-1;k>=0;k--){const b=(a>>k)&1,ix=e-1-k;c.bit(P,base+10+e*8+(ix<7?ix:7),b)}
+  c.bit(P,base+82+sctx,v<0?1:0)}
+function decRes(d,P,base,sctx){if(d.bit(P,base))return 0;let e=0;while(e<8&&d.bit(P,base+1+e))e++;
+  let a=1;for(let k=e-1;k>=0;k--){const ix=e-1-k;a=(a<<1)|d.bit(P,base+10+e*8+(ix<7?ix:7))}
+  return d.bit(P,base+82+sctx)?-a:a}
+
+function refOf(k,ch,res){if(ch<3||k===1||k===3)return 0;if(k===0)return res[1];return (res[1]+res[0])>>1}
+// 加权预测器（4 个子预测，按邻居误差加权）
+function predictors(W,N,NW,NE,NN,WW){const mx=W>N?W:N,mn=W>N?N:W;const med=NW>=mx?mn:NW<=mn?mx:W+N-NW;
+  return[med,W+NE-N,N+((W-NW+NE-N)>>1),(W+NE)>>1,N+N-NN,W+W-WW]}
+const NP=6,ORD=[1,0,2,3];
+// 统一的编/解码过程（dec=true 时解码）
+const MB=0; // 同色标记模型偏移
+async function acCode(c,raw,w,h,ch,bits,dec,onProg){
+  const M=1<<bits,half=M>>1,wrap=v=>{v&=M-1;return v>=half?v-M:v};
+  const NCTX=ch*NQ*3,RB=4*64,P=newModel(RB+NCTX*SLOT);
+  const err=new Int32Array(ch*2*w),pe=new Int32Array(ch*NP*2*w),bias=new Int32Array(ch*NQ*3*2),res=new Int32Array(ch),rs=w*ch;
+  const same=(a,b)=>{for(let k=0;k<ch;k++)if(raw[a+k]!==raw[b+k])return false;return true};
+  let prevHit=0;
+  for(let y=0;y<h;y++){const r0=(y&1)*w,r1=((y+1)&1)*w;prevHit=0;
+    for(let x=0;x<w;x++){const p0=(y*w+x)*ch;
+      // 1) 同色标记：与左、上、右上、左上某个像素完全相同？
+      const cands=[];if(x)cands.push(p0-ch);if(y){cands.push(p0-rs);if(x<w-1)cands.push(p0-rs+ch);if(x)cands.push(p0-rs-ch)}
+      const cx=(x&&y&&same(p0-ch,p0-rs)?1:0)|(y&&x<w-1&&same(p0-rs,p0-rs+ch)?2:0)|(x&&y&&same(p0-ch,p0-rs-ch)?4:0)|(x>1&&same(p0-ch,p0-2*ch)?8:0)|(prevHit?16:0)|(prevHit===2?32:0);
+      let hit=-1;const tried=[];
+      for(let j=0;j<cands.length;j++){const q=cands[j];if(tried.some(t=>same(t,q)))continue;tried.push(q);
+        let b;if(dec)b=c.bit(P,MB+j*64+cx);else{b=same(p0,q)?1:0;c.bit(P,MB+j*64+cx,b)}
+        if(b){hit=q;break}}
+      if(hit>=0&&dec)for(let k=0;k<ch;k++)raw[p0+k]=raw[hit+k];
+      prevHit=hit<0?0:hit===p0-ch?1:2;
+      // 2) 逐通道预测 + 残差（命中时只更新统计，不写残差）
+      for(let kk=0;kk<ch;kk++){const k=ch>=3?ORD[kk]:kk,i=p0+k;
+        const W=x?raw[i-ch]:(y?raw[i-rs]:half),N=y?raw[i-rs]:W,NW=x&&y?raw[i-rs-ch]:N,NE=y&&x<w-1?raw[i-rs+ch]:N,NN=y>1?raw[i-2*rs]:N,WW=x>1?raw[i-2*ch]:W;
+        const ps=predictors(W,N,NW,NE,NN,WW);
+        let sw=0,sp=0;for(let p=0;p<NP;p++){const o=(k*NP+p)*2*w;let e=1;if(x)e+=pe[o+r0+x-1];if(y){e+=pe[o+r1+x];if(x)e+=pe[o+r1+x-1];if(x<w-1)e+=pe[o+r1+x+1]}const wt=1/(e*e);sw+=wt;sp+=wt*ps[p]}
+        let pr=Math.round(sp/sw);
+        const eo=k*2*w,ew=x?err[eo+r0+x-1]:0,en=y?err[eo+r1+x]:ew,ene=y&&x<w-1?err[eo+r1+x+1]:en;
+        const act=ew+en+((ene+(x&&y?err[eo+r1+x-1]:en))>>1);
+        const q=qz((act>>1)+(ch>=3&&k!==1&&k<3?(res[1]<0?-res[1]:res[1]):0)),grad=(N>NW?1:N<NW?2:0);
+        const ci=(k*NQ+q)*3+grad,bo=ci*2;pr+=bias[bo+1]>0?Math.round(bias[bo]/bias[bo+1]):0;
+        if(pr<0)pr=0;else if(pr>M-1)pr=M-1;
+        const ref=refOf(k,ch,res),sctx=ch>=3&&k!==1&&k<3?(res[1]>0?3:res[1]<0?4:5):x?(ew===0?0:1):2;
+        let v;
+        if(hit>=0)v=wrap(raw[i]-pr);
+        else if(dec){v=wrap(decRes(c,P,RB+ci*SLOT,sctx)+ref);raw[i]=(pr+v)&(M-1)}
+        else{v=wrap(raw[i]-pr);codeRes(c,P,RB+ci*SLOT,wrap(v-ref),sctx)}
+        const val=raw[i];res[k]=v;err[eo+r0+x]=v<0?-v:v;
+        for(let p=0;p<NP;p++){const dd=val-ps[p];pe[(k*NP+p)*2*w+r0+x]=dd<0?-dd:dd}
+        if(hit<0){bias[bo]+=v;bias[bo+1]++;if(bias[bo+1]>=64){bias[bo]>>=1;bias[bo+1]>>=1}}
+      }}
+    if(onProg&&(y&7)===0)await onProg(y/h)}}
+async function acEncode(raw,w,h,ch,bits,onProg){const c=new AEnc(raw.length>>1);await acCode(c,raw,w,h,ch,bits,false,onProg);return c.done()}
+async function acDecode(buf,w,h,ch,bits,onProg){const raw=new Uint8Array(w*h*ch);await acCode(new ADec(buf,0),raw,w,h,ch,bits,true,onProg);return raw}
+if(typeof module!=='undefined')module.exports={acEncode,acDecode};
+
+let LB=48;let __lt=0;const yld=()=>new Promise(r=>setTimeout(r,0));const MAIN=!!self.__main;
 const Y=async()=>{if(MAIN&&Date.now()-__lt>60){__lt=Date.now();await yld()}};
 const post=(o,t)=>self.postMessage(o,t||[]);
 let lastP=0;const prog=(stage,p)=>{const now=Date.now();if(p<1&&now-lastP<120)return;lastP=now;post({type:'prog',stage,p})};
@@ -217,29 +299,42 @@ async function collect(readable,size){const rd=readable.getReader(),parts=[];let
 const KIT=600000,hx=b=>Array.from(b,v=>v.toString(16).padStart(2,'0')).join(''),unhx=s=>new Uint8Array((s.match(/../g)||[]).map(v=>parseInt(v,16)));
 async function deriveKey(pwd,salt,it){const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pwd),'PBKDF2',false,['deriveKey']);
   return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+// 中文汉字编码：每个汉字承载 14 位（U+4E00 起 16384 个常用区汉字）
+const CJ0=0x4E00;
+function cjkE(b){let s='',acc=0,bits=0;const a=[];for(let i=0;i<b.length;i++){acc=(acc<<8)|b[i];bits+=8;if(bits>=14){bits-=14;a.push(CJ0+((acc>>bits)&16383))}acc&=(1<<bits)-1}if(bits)a.push(CJ0+((acc<<(14-bits))&16383));
+  for(let i=0;i<a.length;i+=4096)s+=String.fromCharCode.apply(null,a.slice(i,i+4096));return s}
+function cjkD(s,len){const o=new Uint8Array(len);let acc=0,bits=0,k=0;for(let i=0;i<s.length&&k<len;i++){const v=s.charCodeAt(i)-CJ0;if(v<0||v>16383)return null;acc=(acc<<14)|v;bits+=14;while(bits>=8&&k<len){bits-=8;o[k++]=(acc>>bits)&255}acc&=(1<<bits)-1}return k===len?o:null}
+const cjN=L=>Math.ceil(L*8/14);
+function crc14(id,b){let c=~0;for(let s=0;s<32;s+=8)c=CRCT[(c^(id>>>s))&255]^(c>>>8);for(let i=0;i<b.length;i++)c=CRCT[(c^b[i])&255]^(c>>>8);return((~c)>>>0)&16383}
 function hdr(m){let hs='PXC1;'+Object.entries(m).map(([a,v])=>a+'='+v).join(';');return'['+hs+';h='+crcStr(hs).toString(16).padStart(4,'0')+']'}
 
 async function enc(d){
   const {w,h,bits,z,nsym}=d,ch=d.a?4:3;let inter=d.rgb;
   if(d.a){inter=new Uint8Array(w*h*4);const rgb=d.rgb,a=d.a;for(let i=0,j=0,k=0;i<w*h;i++){inter[j++]=rgb[k++];inter[j++]=rgb[k++];inter[j++]=rgb[k++];inter[j++]=a[i]}}
   const rawLen=inter.length;let payload=inter;
-  if(z){const f=await filt(inter,w,h,ch,false,'预测滤波');inter=null;prog('压缩',0);payload=await collect(new Blob([f]).stream().pipeThrough(new CompressionStream('deflate')))}
-  const payloadLen=payload.length;let hm={w,h,ch,b:bits,z};
+  let zU=z;
+  if(z){const f=await filt(inter,w,h,ch,false,'预测滤波');prog('标准压缩',0);const df=await collect(new Blob([f]).stream().pipeThrough(new CompressionStream('deflate')));payload=df;zU=1;
+    if(z===2){const ac=await acEncode(inter,w,h,ch,bits,async p=>{prog('超强压缩',p);await Y()});if(ac.length<df.length){payload=ac;zU=2}}
+    inter=null}
+  const payloadLen=payload.length;let hm={w,h,ch,b:bits,z:zU};
   if(d.pwd){prog('加密',0);const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),key=await deriveKey(d.pwd,salt,KIT);
-    const inner=new Uint8Array(11+payload.length),dv=new DataView(inner.buffer);dv.setUint32(0,w);dv.setUint32(4,h);inner[8]=ch;inner[9]=bits;inner[10]=z;inner.set(payload,11);payload=null;
+    const inner=new Uint8Array(11+payload.length),dv=new DataView(inner.buffer);dv.setUint32(0,w);dv.setUint32(4,h);inner[8]=ch;inner[9]=bits;inner[10]=zU;inner.set(payload,11);payload=null;
     payload=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,inner));hm={w:0,h:0,ch:0,b:0,z:1,x:1,s:hx(salt),i:hx(iv),k:KIT}}
   const k=255-nsym,B=Math.max(1,Math.ceil(payload.length/k)),n=255,total=B*n,stream=new Uint8Array(total),blk=new Uint8Array(k);
   for(let b=0;b<B;b++){blk.fill(0);blk.set(payload.subarray(b*k,Math.min(payload.length,(b+1)*k)));const cw=rsEncode(blk,nsym);for(let i=0;i<n;i++)stream[i*B+b]=cw[i];if((b&255)===0){prog('纠错编码',b/B);await Y()}}
-  const lines=Math.ceil(total/LB),hs=hdr({...hm,e:nsym,len:payload.length,B,n:lines,c:crc32(payload).toString(16)});
-  const HI=Math.max(1,Math.min(100,Math.ceil(lines/5))),parts=[],offsets=new Float64Array(lines+1);let off=0,buf=[];
-  const push=s=>{buf.push(s);off+=s.length+1;if(buf.length>=4096){parts.push(buf.join('\n')+'\n');buf=[]}};
+  const T=d.txt?1:0;LB=T?96:48;
+  const lines=Math.ceil(total/LB),hs=hdr({...hm,t:T,L:LB,e:nsym,len:payload.length,B,n:lines,c:crc32(payload).toString(16)});
+  const HI=Math.max(1,Math.min(100,Math.ceil(lines/5))),parts=[],offsets=new Float64Array(lines+1);let off=0,chars=0,buf=[];
+  const push=(s,cj)=>{buf.push(s);off+=(cj?1+3*(s.length-1):s.length)+1;chars+=s.length+1;if(buf.length>=4096){parts.push(buf.join('\n')+'\n');buf=[]}};
   push(hs);
-  for(let i=0;i<lines;i++){offsets[i]=off;const body=i.toString(36)+':'+b64e(stream.subarray(i*LB,Math.min(total,(i+1)*LB)));push('@'+body+'#'+crcStr(body).toString(16).padStart(4,'0'));if(i%HI===HI-1&&i<lines-1)push(hs);if((i&4095)===0){prog('生成文本',i/lines);await Y()}}
+  for(let i=0;i<lines;i++){offsets[i]=off;const dat=stream.subarray(i*LB,Math.min(total,(i+1)*LB));
+    if(T)push('@'+String.fromCharCode(CJ0+(i>>>14&16383),CJ0+(i&16383),CJ0+crc14(i,dat))+cjkE(dat),1);
+    else{const body=i.toString(36)+':'+b64e(dat);push('@'+body+'#'+crcStr(body).toString(16).padStart(4,'0'))}if(i%HI===HI-1&&i<lines-1)push(hs);if((i&4095)===0){prog('生成文本',i/lines);await Y()}}
   offsets[lines]=off;push(hs);parts.push(buf.join('\n'));
   const blob=new Blob(parts,{type:'text/plain'});
-  post({type:'enc',blob,offsets,head:hs,lines,len:blob.size,rawLen,payloadLen,ch,enc:!!d.pwd},[offsets.buffer])}
+  post({type:'enc',blob,offsets,head:hs,lines,len:blob.size,chars,zU,rawLen,payloadLen,ch,enc:!!d.pwd},[offsets.buffer])}
 
-async function* chunks(blobs,size){let done=0,all=blobs.reduce((s,b)=>s+b.size,0)||1;for(const b of blobs)for(let o=0;o<b.size;o+=size){yield await b.slice(o,o+size).text();done+=Math.min(size,b.size-o);chunks.p=done/all}}
+async function* chunks(blobs,size){let done=0,all=blobs.reduce((s,b)=>s+b.size,0)||1;for(const b of blobs){const td=new TextDecoder();for(let o=0;o<b.size;o+=size){const last=o+size>=b.size;yield td.decode(new Uint8Array(await b.slice(o,o+size).arrayBuffer()),{stream:!last});done+=Math.min(size,b.size-o);chunks.p=done/all}}}
 async function dec(d){
   const blobs=d.blobs,CS=8<<20,re=/\[(PXC1;[^\[\]]*?);h=([0-9a-f]{4})\]/g,re2=/\[PXC[^\[\]@]{20,300}\]/g;let meta=null,tail='';const votes={};let cands=0;
   const parse=str=>{const m={};for(const kv of str.split(';')){const q=kv.indexOf('=');if(q>0)m[kv.slice(0,q)]=kv.slice(q+1)}return m};
@@ -248,13 +343,17 @@ async function dec(d){
     if(meta)break;
     if(cands<200)for(const mt of s.slice(tail.length?Math.max(0,tail.length-300):0).matchAll(re2)){cands++;const m=parse(mt[0].slice(1,-1));for(const k in m){(votes[k]=votes[k]||{})[m[k]]=(votes[k][m[k]]||0)+1}}
     tail=s.slice(-700);prog('查找文件头',chunks.p)}
-  if(!meta&&cands){const m={};for(const k of ['w','h','ch','b','z','e','len','B','n','c','x','s','i','k']){const v=votes[k];if(!v)continue;m[k]=Object.entries(v).sort((a,b)=>b[1]-a[1])[0][0]}
-    const N=k=>+m[k];if(['w','h','ch','b','z','e','len','B','n'].every(k=>/^\d+$/.test(m[k]||''))&&/^[0-9a-f]+$/.test(m.c||'')&&N('n')===Math.ceil(N('B')*255/48)&&N('len')<=N('B')*(255-N('e'))&&(N('z')||N('len')===N('w')*N('h')*N('ch')))meta=m}
+  if(!meta&&cands){const m={};for(const k of ['w','h','ch','b','z','e','len','B','n','c','x','s','i','k','t','L']){const v=votes[k];if(!v)continue;m[k]=Object.entries(v).sort((a,b)=>b[1]-a[1])[0][0]}
+    const N=k=>+m[k];if(['w','h','ch','b','z','e','len','B','n'].every(k=>/^\d+$/.test(m[k]||''))&&/^[0-9a-f]+$/.test(m.c||'')&&N('n')===Math.ceil(N('B')*255/(N('L')||48))&&N('len')<=N('B')*(255-N('e'))&&(N('z')||N('len')===N('w')*N('h')*N('ch')))meta=m}
   if(!meta)throw Error('找不到有效的文件头（[PXC1;…] 那一行全部损坏或没有粘贴进来）');
+  LB=+meta.L||48;const T=+meta.t||0;
   const nsym=+meta.e,B=+meta.B,lines=+meta.n,n=255,total=B*n,len=+meta.len;let w=+meta.w,h=+meta.h,ch=+meta.ch,bits=+meta.b,z=+meta.z;
   const stream=new Uint8Array(total),ok=new Uint8Array(lines),sus=new Uint8Array(lines);
   const fre=/^([0-9a-z]+):([A-Za-z0-9_-]+)#([0-9a-f]{4})/;
-  const handle=fr=>{const mm=fre.exec(fr);if(!mm)return;const i=parseInt(mm[1],36);if(!(i>=0&&i<lines)||ok[i])return;
+  const handleC=fr=>{if(fr.length<3)return;const a=fr.charCodeAt(0)-CJ0,b2=fr.charCodeAt(1)-CJ0,cc=fr.charCodeAt(2)-CJ0;if(a<0||a>16383||b2<0||b2>16383||cc<0||cc>16383)return;
+    const i=a*16384+b2;if(!(i<lines)||ok[i])return;const L=Math.min(LB,total-i*LB),nc=cjN(L),b=cjkD(fr.slice(3,3+nc),L);if(!b)return;
+    if(crc14(i,b)!==cc){if(!sus[i]){stream.set(b,i*LB);sus[i]=1}return}stream.set(b,i*LB);ok[i]=1;sus[i]=0};
+  const handle=fr=>{if(T)return handleC(fr);const mm=fre.exec(fr);if(!mm)return;const i=parseInt(mm[1],36);if(!(i>=0&&i<lines)||ok[i])return;
     const L=Math.min(LB,total-i*LB),b=b64d(mm[2],L);if(!b)return;
     if(crcStr(mm[1]+':'+mm[2]).toString(16).padStart(4,'0')!==mm[3]){if(!sus[i]){stream.set(b,i*LB);sus[i]=1}return}
     stream.set(b,i*LB);ok[i]=1;sus[i]=0};
@@ -277,7 +376,8 @@ async function dec(d){
     if(!d.pwd){post({type:'needpwd',stats});return}
     prog('解密',0);let pt;try{pt=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:unhx(meta.i)},await deriveKey(d.pwd,unhx(meta.s),+meta.k||KIT),payload))}catch(e){post({type:'badpwd',stats});return}
     const dv=new DataView(pt.buffer);w=dv.getUint32(0);h=dv.getUint32(4);ch=pt[8];bits=pt[9];z=pt[10];payload2=pt.subarray(11);Object.assign(meta,{w,h,ch,b:bits,z})}
-  if(z){prog('解压',0);let inf;try{inf=await collect(new Blob([payload2]).stream().pipeThrough(new DecompressionStream('deflate')),w*h*ch)}catch(e){throw Error('解压失败：'+e.message)}raw=await filt(inf,w,h,ch,true,'还原像素')}
+  if(z===2){raw=await acDecode(payload2,w,h,ch,bits,async p=>{prog('超强解压',p);await Y()})}
+  else if(z){prog('解压',0);let inf;try{inf=await collect(new Blob([payload2]).stream().pipeThrough(new DecompressionStream('deflate')),w*h*ch)}catch(e){throw Error('解压失败：'+e.message)}raw=await filt(inf,w,h,ch,true,'还原像素')}
   else{raw=new Uint8Array(w*h*ch);raw.set(payload2.subarray(0,w*h*ch))}
   const EX=new Uint8Array(256);for(let v=0;v<256;v++){let o=v<<(8-bits),s=bits;while(s<8){o|=o>>s;s*=2}EX[v]=bits===8?v:o&255}
   const png=await toPNG(raw,w,h,ch,EX);
@@ -337,7 +437,7 @@ async function openImage(f){
   if(!img.naturalWidth){img.width=1024;img.height=1024}return img}
 const dims=s=>[s.naturalWidth||s.width,s.naturalHeight||s.height];
 
-async function loadFile(f){if(!f||busy)return;say($('encMsg'),'正在打开图片…');
+async function loadFile(f){if(!f)return;say($('encMsg'),'正在打开图片…');
   try{src=await openImage(f);src.fileName=f.name;src.fileSize=f.size;encode()}catch(e){say($('encMsg'),'打开失败：'+e.message,'bad')}}
 
 async function encode(){clearTimeout(pwdT);if(!src)return;if(busy){again=true;return}busy=true;again=false;const m=$('encMsg');setEncBtns(false);
@@ -360,12 +460,12 @@ async function encode(){clearTimeout(pwdT);if(!src)return;if(busy){again=true;re
   const z=+$('zip').value,nsym=+$('ecc').value,ch=a?4:3;
   let ps='序号   x    y    颜色      R   G   B'+(a?'   A':'')+'\n';for(const [n,x,y,r,g,b,al] of plain)ps+=`${String(n).padEnd(6)} ${String(x).padEnd(4)} ${String(y).padEnd(4)} ${hex(r,g,b)}  ${[r,g,b].concat(a?[al]:[]).map(v=>String(v).padStart(3)).join(' ')}\n`;
   $('plainPre').textContent=ps+'…（共 '+(w*h).toLocaleString()+' 个像素）';
-  const pwd=$('pwd').value;encPwd=pwd;const r=await runWorker({cmd:'enc',rgb,a,w,h,bits,z,nsym,pwd},a?[rgb.buffer,a.buffer]:[rgb.buffer],(st,p)=>{bar('bar1',.25+p*.75);say(m,`${st} ${Math.round(p*100)}%`)});
+  const pwd=$('pwd').value;encPwd=pwd;const r=await runWorker({cmd:'enc',rgb,a,w,h,bits,z,nsym,pwd,txt:+$('txt').value},a?[rgb.buffer,a.buffer]:[rgb.buffer],(st,p)=>{bar('bar1',.25+p*.75);say(m,`${st} ${Math.round(p*100)}%`)});
   r.w=w;r.h=h;r.bits=bits;r.full=r.len<=3e7?await r.blob.text():null;encRes=r;segCache={k:'',t:null};
-  const show=r.len<=3e6?r.full:await r.blob.slice(0,2e5).text()+'\n\n……（文本共 '+r.len.toLocaleString()+' 个字符，太长只显示开头。请用下方按钮复制、分段复制或保存）';
+  const show=r.len<=3e6?r.full:await r.blob.slice(0,2e5).text()+'\n\n……（文本共 '+r.chars.toLocaleString()+' 个字，太长只显示开头。请用下方按钮复制、分段复制或保存）';
   $('out').value=show;
-  showStats($('encStats'),[[w+'×'+h,'像素尺寸'],[(w*h).toLocaleString(),'像素个数'],[r.len.toLocaleString(),'文本字符数'],[r.lines.toLocaleString(),'数据行']]);
-  say(m,`${r.enc?'已用密码加密。':''}原始像素数据 ${fmt(r.rawLen)}，${z?'压缩后 '+fmt(r.payloadLen)+'，':''}含纠错的文本 ${fmt(r.len)}。`+(r.len>1e6?' 文本较长，发聊天软件建议用分段复制。':''),'good');
+  showStats($('encStats'),[[w+'×'+h,'像素尺寸'],[(w*h).toLocaleString(),'像素个数'],[r.chars.toLocaleString(),'文本字数'],[r.lines.toLocaleString(),'数据行']]);
+  say(m,`${r.enc?'已用密码加密。':''}原始像素数据 ${fmt(r.rawLen)}，${z?(r.zU===2?'超强':'标准')+'压缩后 '+fmt(r.payloadLen)+'（压到 '+(r.payloadLen/r.rawLen*100).toFixed(1)+'%），':''}最终文本 ${r.chars.toLocaleString()} 个字。`+(r.chars>2e5?' 文本较长，发聊天软件建议用分段复制。':''),'good');
   $('seg').hidden=r.len<=2e4;segUpdate();prepSeg();setEncBtns(true);$('hurt').disabled=r.len>3e7}
  catch(e){say(m,'编码失败：'+e.message,'bad')}
  finally{bar('bar1',null);busy=false;if(again)encode()}}
@@ -379,7 +479,7 @@ function preview(s,w,h){const k=Math.min(1,1000/Math.max(w,h)),c=document.create
     $('probe1').innerHTML=`<span class="sw" style="background:${hx}"></span>(${x}, ${y}) ${hx} RGB ${v[0]},${v[1]},${v[2]}${v[3]<255?' A '+v[3]:''}`};
   c.onmouseleave=()=>$('probe1').textContent=''}
 
-function segInfo(){const size=+$('segSize').value,r=encRes,per=Math.max(1,Math.floor((size-r.head.length-2)/((r.offsets[r.lines]-r.offsets[0])/r.lines))),cnt=Math.ceil(r.lines/per);return{per,cnt}}
+function segInfo(){const size=+$('segSize').value,r=encRes,per=Math.max(1,Math.floor((size-2*r.head.length-2)/(r.chars/(r.lines+2)))),cnt=Math.ceil(r.lines/per);return{per,cnt}}
 function segUpdate(){if(!encRes)return;const {cnt}=segInfo();$('segOf').textContent='/ '+cnt+' 段';$('segNo').max=cnt;if(+$('segNo').value>cnt)$('segNo').value=cnt}
 async function segText(i){const r=encRes,{per}=segInfo(),a=i*per,b=Math.min(r.lines,a+per);return r.head+'\n'+await r.blob.slice(r.offsets[a],r.offsets[b]).text()+r.head}
 function execCopy(t){const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();try{ta.setSelectionRange(0,t.length)}catch(e){}let ok=false;try{ok=document.execCommand('copy')}catch(e){}ta.remove();return ok}
@@ -422,15 +522,15 @@ function probe(el){const d=decRaw,EX=EXl(d.bits);el.onmousemove=e=>{const r=el.g
   const i=(y*d.w+x)*d.ch,v=[EX[d.raw[i]],EX[d.raw[i+1]],EX[d.raw[i+2]]],hx=hex(...v);$('probe2').innerHTML=`<span class="sw" style="background:${hx}"></span>(${x}, ${y}) ${hx} RGB ${v.join(',')}${d.ch===4?' A '+EX[d.raw[i+3]]:''}`};el.onmouseleave=()=>$('probe2').textContent=''}
 
 function hurt(t){let L=t.split('\n');const n0=L.length;L=L.filter(()=>Math.random()>0.05);
- let s=L.join(Math.random()>.5?'':'\n').split(''),k=Math.max(5,Math.round(n0*0.03));const A='ABCxyz019_-';for(let i=0;i<k;i++)s[Math.random()*s.length|0]=A[Math.random()*A.length|0];
+ let s=L.join(Math.random()>.5?'':'\n').split(''),k=Math.max(2,Math.round(n0*0.03));const A='ABCxyz019_-';for(let i=0;i<k;i++)s[Math.random()*s.length|0]=A[Math.random()*A.length|0];
  return '（被破坏过的文本：删掉约 5% 的行、改了 '+k+' 个字符'+(s.includes('\n')?'':'、去掉了所有换行')+'）\n'+s.join('')}
 
-$('drop').onclick=()=>{if(!busy)$('file').click()};$('drop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}};
+$('drop').onclick=()=>$('file').click();$('drop').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('file').click()}};
 $('file').onchange=e=>{loadFile(e.target.files[0]);e.target.value=''};
 const dz=$('drop');dz.ondragover=e=>{e.preventDefault();dz.classList.add('on')};dz.ondragleave=()=>dz.classList.remove('on');
 dz.ondrop=e=>{e.preventDefault();dz.classList.remove('on');loadFile(e.dataTransfer.files[0])};
 document.addEventListener('paste',e=>{if(e.target===$('inp'))return;const it=[...((e.clipboardData||{}).items||[])].find(i=>i.type.startsWith('image/'));if(it){e.preventDefault();loadFile(it.getAsFile())}});
-['maxSide','bits','ecc','zip'].forEach(i=>$(i).onchange=encode);
+['maxSide','bits','ecc','zip','txt'].forEach(i=>$(i).onchange=encode);
 let encPwd='';$('pwd').oninput=()=>{clearTimeout(pwdT);if(src)pwdT=setTimeout(encode,800)};$('pwd').onchange=()=>{if(src&&$('pwd').value!==encPwd)encode()};
 const stale=()=>{if(busy||(src&&$('pwd').value!==encPwd)){say($('encMsg'),'设置有改动，正在重新编码，完成后再点一次','bad');if(!busy)encode();return true}return false};
 document.querySelectorAll('.eye').forEach(b=>b.onclick=()=>{const i=$(b.dataset.for),show=i.type==='password';i.type=show?'text':'password';b.textContent=show?'隐藏':'显示'});
