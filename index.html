@@ -90,6 +90,8 @@ input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 
     <span>第</span><input id="segNo" type="number" min="1" value="1"><span id="segOf">/ 1 段</span>
     <button class="ghost" id="segCopy">复制这一段</button>
    </div>
+   <div class="row"><button id="expZip">全部分段打包下载（1 个 ZIP）</button><button class="ghost" id="expAll">按顺序逐个下载全部 .txt</button></div>
+   <p class="tag" style="margin:6px 0 0">发微信 / QQ：直接把 ZIP 或这些 .txt 当文件发出去；对方用本网页“打开文件”一次全选即可还原，顺序乱了也没关系。</p>
   </div>
   <div class="stats" id="encStats"></div>
   <div class="msg" id="encMsg"></div>
@@ -103,12 +105,12 @@ input[type=number]{font:inherit;font-size:16px;width:90px;height:44px;padding:0 
 <div class="grid">
  <div>
   <label for="inp">粘贴编码文本（可以分几次粘贴不同的分段；换行、空格、多余文字都无所谓）</label>
-  <textarea id="inp" placeholder="[PXC1;…] 开头的文本贴在这里，或把 .txt 文件拖进来"></textarea>
+  <textarea id="inp" placeholder="[PXC1;…] 开头的文本贴在这里，或把 .txt / .zip 文件拖进来"></textarea>
   <div class="parts" id="parts"></div>
   <div style="margin-top:10px"><label for="pwd2">解密密码（加密过的文本才需要）</label><div class="pw"><input id="pwd2" type="password" autocomplete="off" placeholder="没加密就留空"><button class="ghost eye" type="button" data-for="pwd2">显示</button></div></div>
-  <input type="file" id="txtFile" accept=".txt,text/plain" multiple hidden>
+  <input type="file" id="txtFile" accept=".txt,.zip,text/plain,application/zip" multiple hidden>
   <div class="bar" id="bar2"><i></i></div>
-  <div class="row"><button class="acc" id="go">还原图片</button><button class="ghost" id="addTxt">打开 .txt 文件</button><button class="ghost" id="clr">清空</button></div>
+  <div class="row"><button class="acc" id="go">还原图片</button><button class="ghost" id="addTxt">打开文件（.txt / .zip，可多选）</button><button class="ghost" id="clr">清空</button></div>
   <div class="stats" id="decStats"></div>
   <div class="msg" id="decMsg"></div>
  </div>
@@ -465,8 +467,8 @@ async function encode(){clearTimeout(pwdT);if(!src)return;if(busy){again=true;re
   const show=r.len<=3e6?r.full:await r.blob.slice(0,2e5).text()+'\n\n……（文本共 '+r.chars.toLocaleString()+' 个字，太长只显示开头。请用下方按钮复制、分段复制或保存）';
   $('out').value=show;
   showStats($('encStats'),[[w+'×'+h,'像素尺寸'],[(w*h).toLocaleString(),'像素个数'],[r.chars.toLocaleString(),'文本字数'],[r.lines.toLocaleString(),'数据行']]);
-  say(m,`${r.enc?'已用密码加密。':''}原始像素数据 ${fmt(r.rawLen)}，${z?(r.zU===2?'超强':'标准')+'压缩后 '+fmt(r.payloadLen)+'（压到 '+(r.payloadLen/r.rawLen*100).toFixed(1)+'%），':''}最终文本 ${r.chars.toLocaleString()} 个字。`+(r.chars>2e5?' 文本较长，发聊天软件建议用分段复制。':''),'good');
-  $('seg').hidden=r.len<=2e4;segUpdate();prepSeg();setEncBtns(true);$('hurt').disabled=r.len>3e7}
+  say(m,`${r.enc?'已用密码加密。':''}原始像素数据 ${fmt(r.rawLen)}，${z?(r.zU===2?'超强':'标准')+'压缩后 '+fmt(r.payloadLen)+'（压到 '+(r.payloadLen/r.rawLen*100).toFixed(1)+'%），':''}最终文本 ${r.chars.toLocaleString()} 个字。`+(r.chars>2e5?' 文本较长，发微信等软件建议用下方“分段导出”。':''),'good');
+  $('seg').hidden=r.chars<=3000;segUpdate();prepSeg();setEncBtns(true);$('hurt').disabled=r.len>3e7}
  catch(e){say(m,'编码失败：'+e.message,'bad')}
  finally{bar('bar1',null);busy=false;if(again)encode()}}
 let encSrc=null;
@@ -481,7 +483,7 @@ function preview(s,w,h){const k=Math.min(1,1000/Math.max(w,h)),c=document.create
 
 function segInfo(){const size=+$('segSize').value,r=encRes,per=Math.max(1,Math.floor((size-2*r.head.length-2)/(r.chars/(r.lines+2)))),cnt=Math.ceil(r.lines/per);return{per,cnt}}
 function segUpdate(){if(!encRes)return;const {cnt}=segInfo();$('segOf').textContent='/ '+cnt+' 段';$('segNo').max=cnt;if(+$('segNo').value>cnt)$('segNo').value=cnt}
-async function segText(i){const r=encRes,{per}=segInfo(),a=i*per,b=Math.min(r.lines,a+per);return r.head+'\n'+await r.blob.slice(r.offsets[a],r.offsets[b]).text()+r.head}
+async function segText(i){const r=encRes,{per,cnt}=segInfo(),a=i*per,b=Math.min(r.lines,a+per);return `像素码 第${i+1}/${cnt}段\n`+r.head+'\n'+await r.blob.slice(r.offsets[a],r.offsets[b]).text()+r.head}
 function execCopy(t){const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;left:0;top:0;width:1px;height:1px;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();try{ta.setSelectionRange(0,t.length)}catch(e){}let ok=false;try{ok=document.execCommand('copy')}catch(e){}ta.remove();return ok}
 function manual(t,why){const o=$('out');if(t.length<=5e6){o.value=t;o.focus();o.select();try{o.setSelectionRange(0,t.length)}catch(e){}say($('encMsg'),why+'：已把内容放进上面的文本框并全选，请按 Ctrl+C（手机上点文本框选择“拷贝”）。','bad')}
   else say($('encMsg'),why+'：内容太长没法手动选中，请用“分段复制”（每段 10 万字以内）或“保存为 .txt”。','bad')}
@@ -493,10 +495,10 @@ function copyNow(t,okMsg){if(t==null){say($('encMsg'),'正在准备内容，请�
 let segCache={k:'',t:null};
 async function prepSeg(){if(!encRes)return;const {cnt}=segInfo(),i=Math.min(cnt,Math.max(1,+$('segNo').value||1)),k=$('segSize').value+'/'+i;if(segCache.k===k&&segCache.t!=null)return;segCache={k,t:null};const t=await segText(i-1);if(segCache.k===k)segCache.t=t}
 let DL=null;if(window.claude&&claude.use)claude.use('downloads').then(d=>DL=d).catch(()=>{});
-async function saveBlob(b,name,el){if(DL){try{await DL.save({filename:name,data:b});say(el,'已保存 '+name,'good')}catch(e){say(el,e&&e.code==='declined'?'已取消保存':'保存失败：'+((e&&e.message)||e),'bad')}return}
-  say(el,'已发起下载 '+name,'good');try{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),6e4)}catch(e){}}
+async function saveBlob(b,name,el,quiet){if(DL){try{await DL.save({filename:name,data:b});if(!quiet)say(el,'已保存 '+name,'good');return true}catch(e){say(el,e&&e.code==='declined'?'已取消保存':'保存失败：'+((e&&e.message)||e),'bad');return false}}
+  if(!quiet)say(el,'已发起下载 '+name,'good');try{const u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),6e4);return true}catch(e){return false}}
 
-function renderParts(){$('parts').innerHTML=decParts.map((p,i)=>`<span>${p.label} · ${p.blob.size.toLocaleString()} 字<button data-i="${i}" aria-label="移除">✕</button></span>`).join('')}
+function renderParts(){$('parts').innerHTML=decParts.map((p,i)=>`<span>${p.label} · ${fmt(p.blob.size)}<button data-i="${i}" aria-label="移除">✕</button></span>`).join('')}
 function addPart(blob,label){decParts.push({blob,label});renderParts()}
 async function decode(){if(dbusy)return;const m=$('decMsg'),parts=decParts.map(p=>p.blob);if($('inp').value.trim())parts.push(new Blob([$('inp').value]));
  if(!parts.length){say(m,'先粘贴编码文本','bad');return}dbusy=true;$('go').disabled=true;
@@ -545,9 +547,38 @@ $('segNo').oninput=()=>prepSeg();
 $('toDec').onclick=()=>{if(stale())return;$('pwd2').value=$('pwd').value;decParts=[];addPart(encRes.blob,'上方编码结果');$('inp').value='';$('dec').scrollIntoView({behavior:'smooth'});decode()};
 $('hurt').onclick=async()=>{if(stale())return;$('pwd2').value=$('pwd').value;decParts=[];addPart(new Blob([hurt(encRes.full)]),'被破坏的文本');$('inp').value='';$('dec').scrollIntoView({behavior:'smooth'});decode()};
 $('inp').addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(t&&t.length>2e5){e.preventDefault();addPart(new Blob([t]),'粘贴 '+(decParts.length+1))}});
-$('inp').ondragover=e=>e.preventDefault();$('inp').ondrop=e=>{e.preventDefault();for(const f of e.dataTransfer.files)addPart(f,f.name)};
-$('addTxt').onclick=()=>$('txtFile').click();$('txtFile').onchange=e=>{for(const f of e.target.files)addPart(f,f.name);e.target.value=''};
+$('inp').ondragover=e=>e.preventDefault();$('inp').ondrop=e=>{e.preventDefault();addFiles([...e.dataTransfer.files])};
+$('addTxt').onclick=()=>$('txtFile').click();$('txtFile').onchange=async e=>{await addFiles([...e.target.files]);e.target.value=''};
 $('parts').onclick=e=>{const b=e.target.closest('button');if(b){decParts.splice(+b.dataset.i,1);renderParts()}};
 $('go').onclick=decode;$('clr').onclick=()=>{$('inp').value='';decParts=[];renderParts();$('decMsg').textContent='';$('decStats').innerHTML=''};
 $('dlPng').onclick=()=>{if(decPng)saveBlob(decPng,'restored.png',$('decMsg'))};
+
+// ===== 分段导出 =====
+const CRCT2=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CRCT2[n]=c>>>0}
+const crcB=b=>{let c=~0;for(let i=0;i<b.length;i++)c=CRCT2[(c^b[i])&255]^(c>>>8);return(~c)>>>0};
+function zipStore(files){ // files:[{name,data:Uint8Array}] 不压缩（数据已压缩过）
+  const te=new TextEncoder(),parts=[],cen=[];let off=0;
+  for(const f of files){const nm=te.encode(f.name),crc=crcB(f.data),lh=new Uint8Array(30+nm.length),dv=new DataView(lh.buffer);
+    dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0x0800,true);dv.setUint32(14,crc,true);dv.setUint32(18,f.data.length,true);dv.setUint32(22,f.data.length,true);dv.setUint16(26,nm.length,true);lh.set(nm,30);
+    const ch=new Uint8Array(46+nm.length),cv=new DataView(ch.buffer);cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x0800,true);cv.setUint32(16,crc,true);cv.setUint32(20,f.data.length,true);cv.setUint32(24,f.data.length,true);cv.setUint16(28,nm.length,true);cv.setUint32(42,off,true);ch.set(nm,46);
+    parts.push(lh,f.data);cen.push(ch);off+=lh.length+f.data.length}
+  const cs=cen.reduce((s,c)=>s+c.length,0),end=new Uint8Array(22),ev=new DataView(end.buffer);ev.setUint32(0,0x06054b50,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,cs,true);ev.setUint32(16,off,true);
+  return new Blob([...parts,...cen,end],{type:'application/zip'})}
+const baseName=()=>((src&&src.fileName)||'image').replace(/\.[^.]+$/,'').replace(/[\\/:*?"<>|]/g,'_');
+const pad=(i,n)=>String(i).padStart(String(n).length<2?2:String(n).length,'0');
+async function exportAll(asZip){if(!encRes||stale())return;const m=$('encMsg'),{cnt}=segInfo(),bn=baseName(),te=new TextEncoder();
+  if(asZip){const files=[];for(let i=0;i<cnt;i++){files.push({name:`${bn}_第${pad(i+1,cnt)}段_共${cnt}段.txt`,data:te.encode(await segText(i))});say(m,`正在打包 ${i+1}/${cnt}`);await tick()}
+    const z=zipStore(files);if(await saveBlob(z,`${bn}_像素码_${cnt}段.zip`,m,true))say(m,`已导出 ZIP：${cnt} 段，${fmt(z.size)}。对方在“② 文本 → 图片”点“打开文件”选中这个 ZIP 就能还原。`,'good');return}
+  let okN=0;for(let i=0;i<cnt;i++){say(m,`正在导出第 ${i+1}/${cnt} 段…`);const t=await segText(i);if(!await saveBlob(new Blob([t],{type:'text/plain'}),`${bn}_第${pad(i+1,cnt)}段_共${cnt}段.txt`,m,true))break;okN++;if(!DL)await new Promise(r=>setTimeout(r,350))}
+  if(okN===cnt)say(m,`已按顺序导出全部 ${cnt} 段 .txt。浏览器若询问“允许下载多个文件”，请点允许。对方一次选中全部 .txt 就能还原。`,'good');else if(okN)say(m,`导出了前 ${okN}/${cnt} 段，剩下的可以再点一次或改用 ZIP 打包`,'bad')}
+$('expZip').onclick=()=>exportAll(true);$('expAll').onclick=()=>exportAll(false);
+// 读取 ZIP（支持不压缩和 deflate 压缩的 ZIP，比如手机重新打包的）
+async function readZip(file){const buf=new Uint8Array(await file.arrayBuffer()),dv=new DataView(buf.buffer),out=[];let e=buf.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;if(e<0)throw Error('不是有效的 ZIP');
+  let p=dv.getUint32(e+16,true);const n=dv.getUint16(e+10,true),td=new TextDecoder();
+  for(let k=0;k<n;k++){const method=dv.getUint16(p+10,true),csz=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true),name=td.decode(buf.subarray(p+46,p+46+nl));p+=46+nl+xl+cl;
+    if(name.endsWith('/'))continue;const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true),raw=buf.subarray(ds,ds+csz);
+    let data;if(method===0)data=raw;else if(method===8)data=new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());else continue;
+    out.push({name,blob:new Blob([data])})}
+  return out.sort((a,b)=>a.name.localeCompare(b.name,'zh',{numeric:true}))}
+async function addFiles(list){for(const f of list){if(/\.zip$/i.test(f.name)){try{for(const x of await readZip(f))addPart(x.blob,x.name.split('/').pop())}catch(e){say($('decMsg'),f.name+'：'+e.message,'bad')}}else addPart(f,f.name)}}
 }</script></body></html>
